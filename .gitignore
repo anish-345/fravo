@@ -1,0 +1,80 @@
+# Miscellaneous
+*.class
+*.log
+*.pyc
+*.swp
+.DS_Store
+.atom/
+.build/
+.buildlog/
+.history
+.svn/
+.swiftpm/
+migrate_working_dir/
+
+# IntelliJ related
+*.iml
+*.ipr
+*.iws
+.idea/
+
+# The .vscode folder contains launch configuration and tasks you configure in
+# VS Code which you may wish to be included in version control, so this line
+# is commented out by default.
+#.vscode/
+
+# Flutter/Dart/Pub related
+**/doc/api/
+**/ios/Flutter/.last_build_id
+.dart_tool/
+.flutter-plugins
+.flutter-plugins-dependencies
+.pub-cache/
+.pub/
+/build/
+/coverage/
+
+# Symbolication related
+app.*.symbols
+
+# Obfuscation related
+app.*.map.json
+
+# Android Studio will place build artifacts here
+/android/app/debug
+/android/app/profile
+/android/app/release
+/android/.gradle/
+/android/fravo_android.iml
+/android/local.properties
+/android/gradlew
+/android/gradlew.bat
+/android/gradle/wrapper/gradle-wrapper.jar
+
+# iOS generated files
+/ios/Runner/GeneratedPluginRegistrant.*
+
+# Linux generated files
+/linux/flutter/ephemeral/
+/linux/.dart_tool/
+/linux/build/
+
+# macOS generated files
+/macos/Flutter/GeneratedPluginRegistrant.swift
+/macos/.dart_tool/
+/macos/build/
+
+# Windows generated files
+/windows/flutter/ephemeral/
+/windows/.dart_tool/
+/windows/build/
+
+# Web generated files
+/web/*.ts
+/web/index.html.ts
+
+# Project-specific
+fravo.iml
+.metadata
+task.md
+pubspec.lock
