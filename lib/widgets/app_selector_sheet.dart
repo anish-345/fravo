@@ -8,7 +8,8 @@ import '../services/time_bank.dart';
 
 // ── App Icon Widget ──────────────────────────────────────────────────────────
 
-/// Lazily loads and caches an app icon from the native layer.
+/// Lazily loads and caches an app icon from the native layer with **LRU cache**.
+/// Maintains an in-memory cache of up to 50 icons to reduce native calls.
 class AppIconWidget extends StatefulWidget {
   final String packageName;
   final double size;
@@ -30,6 +31,11 @@ class AppIconWidget extends StatefulWidget {
 }
 
 class _AppIconWidgetState extends State<AppIconWidget> {
+  /// LRU cache for app icons (shared across all instances).
+  static final Map<String, Uint8List?> _iconCache = {};
+  static final List<String> _cacheOrder = [];
+  static const int _maxCacheSize = 50;
+
   Uint8List? _iconBytes;
   bool _loading = true;
 
@@ -40,7 +46,32 @@ class _AppIconWidgetState extends State<AppIconWidget> {
   }
 
   Future<void> _load() async {
+    // Check cache first
+    if (_iconCache.containsKey(widget.packageName)) {
+      if (mounted) {
+        setState(() {
+          _iconBytes = _iconCache[widget.packageName];
+          _loading = false;
+        });
+      }
+      // Update LRU order
+      _cacheOrder.remove(widget.packageName);
+      _cacheOrder.add(widget.packageName);
+      return;
+    }
+
+    // Fetch from native layer
     final bytes = await BlockerService.instance.getAppIcon(widget.packageName);
+
+    // Add to cache with LRU eviction
+    if (_iconCache.length >= _maxCacheSize) {
+      final oldest = _cacheOrder.removeAt(0);
+      _iconCache.remove(oldest);
+    }
+
+    _iconCache[widget.packageName] = bytes;
+    _cacheOrder.add(widget.packageName);
+
     if (mounted) {
       setState(() {
         _iconBytes = bytes;
@@ -98,7 +129,11 @@ class _AppIconWidgetState extends State<AppIconWidget> {
         color: widget.fallbackBgColor,
         borderRadius: BorderRadius.circular(size * 0.27),
       ),
-      child: Icon(widget.fallbackIcon, color: widget.fallbackIconColor, size: size * 0.5),
+      child: Icon(
+        widget.fallbackIcon,
+        color: widget.fallbackIconColor,
+        size: size * 0.5,
+      ),
     );
   }
 }
@@ -112,7 +147,7 @@ class _AppIconWidgetState extends State<AppIconWidget> {
 class AppSelectorSheet extends StatefulWidget {
   final Set<String> selectedPackageNames;
   final Function(List<String> packageNames, Map<String, String> displayNames)
-      onAppsSelected;
+  onAppsSelected;
 
   const AppSelectorSheet({
     super.key,
@@ -126,7 +161,8 @@ class AppSelectorSheet extends StatefulWidget {
 
 class _AppSelectorSheetState extends State<AppSelectorSheet> {
   final TextEditingController _searchController = TextEditingController();
-  final TextEditingController _customPackageController = TextEditingController();
+  final TextEditingController _customPackageController =
+      TextEditingController();
 
   List<AppInfo> _installedApps = [];
   bool _loadingApps = true;
@@ -166,8 +202,9 @@ class _AppSelectorSheetState extends State<AppSelectorSheet> {
     });
 
     try {
-      final rawApps = await BlockerService.instance
-          .getInstalledApps(forceRefresh: forceRefresh);
+      final rawApps = await BlockerService.instance.getInstalledApps(
+        forceRefresh: forceRefresh,
+      );
       final List<AppInfo> apps = [];
 
       for (final raw in rawApps) {
@@ -180,7 +217,8 @@ class _AppSelectorSheetState extends State<AppSelectorSheet> {
       }
 
       apps.sort(
-          (a, b) => a.appName.toLowerCase().compareTo(b.appName.toLowerCase()));
+        (a, b) => a.appName.toLowerCase().compareTo(b.appName.toLowerCase()),
+      );
 
       if (mounted) {
         setState(() {
@@ -292,7 +330,11 @@ class _AppSelectorSheetState extends State<AppSelectorSheet> {
             padding: const EdgeInsets.symmetric(horizontal: 20),
             child: Row(
               children: [
-                const Icon(Icons.apps_rounded, color: Color(0xFF666666), size: 28),
+                const Icon(
+                  Icons.apps_rounded,
+                  color: Color(0xFF666666),
+                  size: 28,
+                ),
                 const SizedBox(width: 12),
                 Expanded(
                   child: Column(
@@ -394,8 +436,10 @@ class _AppSelectorSheetState extends State<AppSelectorSheet> {
                     : null,
                 filled: true,
                 fillColor: const Color(0xFFF5F5F7),
-                contentPadding:
-                    const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+                contentPadding: const EdgeInsets.symmetric(
+                  horizontal: 16,
+                  vertical: 12,
+                ),
                 border: OutlineInputBorder(
                   borderRadius: BorderRadius.circular(16),
                   borderSide: BorderSide.none,
@@ -408,8 +452,7 @@ class _AppSelectorSheetState extends State<AppSelectorSheet> {
           // App count / filter summary
           if (!_loadingApps && _errorMessage == null)
             Padding(
-              padding:
-                  const EdgeInsets.symmetric(horizontal: 24, vertical: 4),
+              padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 4),
               child: Row(
                 children: [
                   Text(
@@ -434,7 +477,10 @@ class _AppSelectorSheetState extends State<AppSelectorSheet> {
                         _searchController.clear();
                         setState(() => _searchQuery = '');
                       },
-                      child: const Text('Clear', style: TextStyle(fontSize: 11)),
+                      child: const Text(
+                        'Clear',
+                        style: TextStyle(fontSize: 11),
+                      ),
                     ),
                 ],
               ),
@@ -569,8 +615,9 @@ class _AppSelectorSheetState extends State<AppSelectorSheet> {
                 fallbackBgColor: isSelected
                     ? const Color(0xFF2D3748)
                     : const Color(0xFFF0F0F2),
-                fallbackIconColor:
-                    isSelected ? Colors.white : const Color(0xFF555555),
+                fallbackIconColor: isSelected
+                    ? Colors.white
+                    : const Color(0xFF555555),
               ),
             ),
           );
@@ -578,16 +625,20 @@ class _AppSelectorSheetState extends State<AppSelectorSheet> {
           iconWidget = AppIconWidget(
             packageName: app.packageName,
             size: 52,
-            fallbackBgColor:
-                isSelected ? const Color(0xFF2D3748) : const Color(0xFFF0F0F2),
-            fallbackIconColor:
-                isSelected ? Colors.white : const Color(0xFF555555),
+            fallbackBgColor: isSelected
+                ? const Color(0xFF2D3748)
+                : const Color(0xFFF0F0F2),
+            fallbackIconColor: isSelected
+                ? Colors.white
+                : const Color(0xFF555555),
           );
         }
 
         return ListTile(
-          contentPadding:
-              const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+          contentPadding: const EdgeInsets.symmetric(
+            horizontal: 8,
+            vertical: 4,
+          ),
           leading: SizedBox(width: 52, height: 52, child: iconWidget),
           title: Text(
             app.appName,

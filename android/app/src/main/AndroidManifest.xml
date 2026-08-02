@@ -74,6 +74,20 @@
             </intent-filter>
         </receiver>
 
+        <!--
+            FravoBackgroundService — Optimized foreground service for continuous
+            monitoring with battery optimizations.
+        -->
+        <service
+            android:name=".FravoBackgroundService"
+            android:enabled="true"
+            android:exported="false"
+            android:foregroundServiceType="specialUse">
+            <property
+                android:name="android.app.PROPERTY_SPECIAL_USE_FGS_SUBTYPE"
+                android:value="Health tracking and app usage monitoring" />
+        </service>
+
         <meta-data
             android:name="flutterEmbedding"
             android:value="2" />

@@ -38,6 +38,13 @@ dependencies:
   intl: ^0.19.0
   pedometer: ^4.0.1
   permission_handler: ^11.3.1
+  # UI/UX enhancements
+  flutter_animate: ^4.5.0
+  fl_chart: ^0.69.0
+  shimmer: ^3.0.0
+  glassmorphism: ^3.0.0
+  # Battery optimization
+  device_info_plus: ^10.1.2
 
 dev_dependencies:
   flutter_test:

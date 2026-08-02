@@ -92,11 +92,22 @@ class BlockerService {
 
   // ── Block-state evaluation ────────────────────────────────────────────────
 
+  /// Tracks whether the native time limit has been set for each package.
+  /// setAppTimeLimit RESETS the native usage counter, so we call it ONCE per
+  /// package (when earned minutes first becomes > 0). After that we only
+  /// toggle block/unblock — never call setAppTimeLimit again.
+  final Map<String, bool> _limitSet = {};
+
   /// Sets/removes the native time limit for every blocked app and enforces
   /// the block state. Handles the full list of blocked packages.
+  ///
+  /// CRITICAL: Calling [ZoAppBlocker.setAppTimeLimit] resets the native
+  /// usage counter to 0. We therefore set the limit ONLY once per package
+  /// (the first time earned > 0), then only toggle [blockApps]/[unblockAll].
   Future<void> evaluateBlockState() async {
     if (!Platform.isAndroid) return;
 
+    final earned = TimeBankService.instance.earnedMinutes;
     final remaining = TimeBankService.instance.remainingScreenTime;
     final targets = TimeBankService.instance.blockedPackageNames;
 
@@ -108,35 +119,49 @@ class BlockerService {
         try {
           await _blocker.unblockAll();
         } catch (_) {}
-        for (final pkg in targets) {
-          try {
-            await _blocker.removeAppTimeLimit(pkg);
-          } catch (_) {}
-        }
         try {
           await _blocker.blockApps(targets);
           debugPrint(
-              'BlockerService: Blocked ${targets.length} package(s) (remaining: $remaining min).');
+            'BlockerService: Blocked ${targets.length} package(s). Earned: $earned min, Used: ${TimeBankService.instance.usedMinutes} min.',
+          );
         } catch (e) {
           debugPrint('BlockerService.blockApps error: $e');
         }
+      } else if (earned > 0) {
+        // Budget available — unblock and ensure the native limit is set.
+        try {
+          await _blocker.unblockAll();
+        } catch (_) {}
+        for (final pkg in targets) {
+          if (!(_limitSet[pkg] ?? false)) {
+            // First time seeing this package with earned > 0: set limit once.
+            try {
+              await _blocker.setAppTimeLimit(
+                packageName: pkg,
+                dailyLimitMinutes: earned,
+              );
+              _limitSet[pkg] = true;
+              debugPrint(
+                'BlockerService: Set initial limit for $pkg → $earned min.',
+              );
+            } catch (e) {
+              debugPrint('BlockerService.setAppTimeLimit ($pkg) error: $e');
+            }
+          }
+          // On subsequent calls with remaining > 0: skip setAppTimeLimit
+          // to avoid resetting the native usage counter.
+        }
       } else {
-        // Give each blocked package the same remaining-minute budget.
+        // earned == 0: no screen time earned yet — ensure no limits are set.
         try {
           await _blocker.unblockAll();
         } catch (_) {}
         for (final pkg in targets) {
           try {
-            await _blocker.setAppTimeLimit(
-              packageName: pkg,
-              dailyLimitMinutes: remaining,
-            );
-            debugPrint(
-                'BlockerService: Set time limit for $pkg → $remaining min.');
-          } catch (e) {
-            debugPrint('BlockerService.setAppTimeLimit ($pkg) error: $e');
-          }
+            await _blocker.removeAppTimeLimit(pkg);
+          } catch (_) {}
         }
+        _limitSet.clear();
       }
     } catch (e) {
       debugPrint('BlockerService.evaluateBlockState error: $e');
@@ -153,7 +178,9 @@ class BlockerService {
     if (!Platform.isAndroid) return;
     try {
       final limits = await _blocker.getAppTimeLimits();
-      final targets = Set<String>.from(TimeBankService.instance.blockedPackageNames);
+      final targets = Set<String>.from(
+        TimeBankService.instance.blockedPackageNames,
+      );
 
       // Build a map of packageName → usedMinutes from the native layer.
       final Map<String, int> currentUsage = {};
@@ -172,20 +199,29 @@ class BlockerService {
 
   // ── App listing / icons ───────────────────────────────────────────────────
 
-  Future<List<Map<String, dynamic>>> getInstalledApps({bool forceRefresh = false}) async {
+  Future<List<Map<String, dynamic>>> getInstalledApps({
+    bool forceRefresh = false,
+  }) async {
     if (!Platform.isAndroid) return [];
 
     // Return cache if still fresh and not forcing a refresh.
     final cacheAge = _appCacheTimestamp == null
         ? null
         : DateTime.now().difference(_appCacheTimestamp!);
-    if (!forceRefresh && _appCache != null && cacheAge != null && cacheAge < _cacheTtl) {
-      debugPrint('BlockerService: returning cached app list (age: ${cacheAge.inMinutes}m).');
+    if (!forceRefresh &&
+        _appCache != null &&
+        cacheAge != null &&
+        cacheAge < _cacheTtl) {
+      debugPrint(
+        'BlockerService: returning cached app list (age: ${cacheAge.inMinutes}m).',
+      );
       return _appCache!;
     }
 
     try {
-      debugPrint('BlockerService: fetching fresh app list from package manager...');
+      debugPrint(
+        'BlockerService: fetching fresh app list from package manager...',
+      );
       final apps = await _blocker.getApps();
       _appCache = apps;
       _appCacheTimestamp = DateTime.now();
@@ -204,7 +240,6 @@ class BlockerService {
     _appCacheTimestamp = null;
     debugPrint('BlockerService: app list cache cleared.');
   }
-
 
   /// Fetches the PNG bytes of an app icon. Returns null if unavailable.
   Future<Uint8List?> getAppIcon(String packageName) async {
@@ -251,7 +286,10 @@ void onBlockScreenRequested() {
             ),
             child: SafeArea(
               child: Padding(
-                padding: const EdgeInsets.symmetric(horizontal: 28, vertical: 24),
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 28,
+                  vertical: 24,
+                ),
                 child: Column(
                   mainAxisAlignment: MainAxisAlignment.center,
                   children: [
@@ -261,7 +299,9 @@ void onBlockScreenRequested() {
                         color: Colors.white.withAlpha(10),
                         shape: BoxShape.circle,
                         border: Border.all(
-                            color: Colors.redAccent.withAlpha(80), width: 2),
+                          color: Colors.redAccent.withAlpha(80),
+                          width: 2,
+                        ),
                       ),
                       child: blockCtx.appIcon != null
                           ? ClipRRect(
@@ -290,8 +330,10 @@ void onBlockScreenRequested() {
                     ),
                     const SizedBox(height: 8),
                     Container(
-                      padding:
-                          const EdgeInsets.symmetric(horizontal: 14, vertical: 6),
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 14,
+                        vertical: 6,
+                      ),
                       decoration: BoxDecoration(
                         color: Colors.redAccent.withAlpha(30),
                         borderRadius: BorderRadius.circular(20),
