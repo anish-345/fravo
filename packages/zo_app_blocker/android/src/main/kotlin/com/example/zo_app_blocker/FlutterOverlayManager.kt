@@ -52,9 +52,6 @@ class FlutterOverlayManager(private val context: Context) {
     // Pending block data queued if the engine hasn't signalled ready yet.
     private var pendingBlockData: Map<String, Any?>? = null
 
-    /** Incremented on every hide to cancel in-flight show operations. */
-    private var overlayGeneration = 0
-
     // ------------------------------------------------------------------------
     // Engine lifecycle
     // ------------------------------------------------------------------------
@@ -98,8 +95,11 @@ class FlutterOverlayManager(private val context: Context) {
                     result.success(null)
                 }
                 "dismissBlockScreen" -> {
-                    val pkg = currentBlockedPackage
-                    AppBlockerForegroundService.instance?.onUserDismissedBlock(pkg)
+                    hideOverlay()
+                    val startMain = Intent(Intent.ACTION_MAIN)
+                    startMain.addCategory(Intent.CATEGORY_HOME)
+                    startMain.flags = Intent.FLAG_ACTIVITY_NEW_TASK
+                    context.startActivity(startMain)
                     result.success(null)
                 }
                 "temporarySessionUnlock" -> {
@@ -140,32 +140,19 @@ class FlutterOverlayManager(private val context: Context) {
      * If called for a DIFFERENT package while showing, the overlay is
      * refreshed with the new package's data.
      */
-    fun showOverlay(
-        packageName: String,
-        appName: String?,
-        appIcon: ByteArray?,
-        onEngineUnavailable: (() -> Unit)? = null,
-        onWindowAddFailed: (() -> Unit)? = null
-    ) {
+    fun showOverlay(packageName: String, appName: String?, appIcon: ByteArray?) {
         // If already showing for this exact package, nothing to do.
         if (isOverlayVisible && currentBlockedPackage == packageName) return
 
-        val generation = ++overlayGeneration
         currentBlockedPackage = packageName
 
         handler.post {
-            // A dismiss arrived while this show was queued — abort.
-            if (generation != overlayGeneration) return@post
-
             // Ensure engine is started (no-op if already running).
             if (engine == null) startEngine()
 
-            // Fall back to native overlay if the Flutter engine can't start.
-            if (engine == null) {
-                currentBlockedPackage = null
-                onEngineUnavailable?.invoke()
-                return@post
-            }
+            // If still no engine (no callback registered), signal failure so the
+            // caller can fall back to the native overlay.
+            if (engine == null) return@post
 
             // Remove any existing view cleanly before adding a new one.
             removeFlutterViewFromWindow()
@@ -180,19 +167,14 @@ class FlutterOverlayManager(private val context: Context) {
             try {
                 windowManager.addView(flutterView, params)
                 // Mark visible only AFTER a successful add.
-                if (generation != overlayGeneration) {
-                    removeFlutterViewFromWindow()
-                    return@post
-                }
                 isOverlayVisible = true
                 engine?.lifecycleChannel?.appIsResumed()
             } catch (e: Exception) {
-                // Window add failed — fall back to native overlay.
+                // Window add failed — clean up and stay invisible.
                 e.printStackTrace()
                 flutterView?.detachFromFlutterEngine()
                 flutterView = null
                 currentBlockedPackage = null
-                onWindowAddFailed?.invoke()
                 return@post
             }
 
@@ -216,11 +198,10 @@ class FlutterOverlayManager(private val context: Context) {
      * Safe to call from any thread; work is posted to the main thread.
      */
     fun hideOverlay() {
-        // Invalidate any in-flight showOverlay posts.
-        overlayGeneration++
+        if (!isOverlayVisible) return
+        // Clear the flag immediately so callers see the change right away.
         isOverlayVisible = false
         currentBlockedPackage = null
-        pendingBlockData = null
 
         handler.post {
             removeFlutterViewFromWindow()
@@ -304,10 +285,7 @@ class FlutterOverlayManager(private val context: Context) {
      * Release all resources. Call when the accessibility service is destroyed.
      */
     fun destroy() {
-        overlayGeneration++
         isOverlayVisible = false
-        currentBlockedPackage = null
-        pendingBlockData = null
         handler.post {
             removeFlutterViewFromWindow()
             channel?.setMethodCallHandler(null)
@@ -315,6 +293,7 @@ class FlutterOverlayManager(private val context: Context) {
             engine?.destroy()
             engine = null
             isEngineReady = false
+            pendingBlockData = null
         }
     }
 }

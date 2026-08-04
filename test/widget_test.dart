@@ -1,8 +1,33 @@
 import 'package:flutter_test/flutter_test.dart';
 
+import 'package:fravo/services/blocker_service.dart';
 import 'package:fravo/services/time_bank.dart';
 
 void main() {
+  group('BlockerService startup re-arm logic', () {
+    test('forces a native re-arm on startup even when the earned budget is unchanged', () {
+      expect(
+        BlockerService.shouldArmNativeLimit(
+          earnedMinutes: 6,
+          lastSetEarnedMinutes: 6,
+          forceRearm: true,
+        ),
+        isTrue,
+      );
+    });
+
+    test('skips re-arming when the earned budget has not changed and startup force is off', () {
+      expect(
+        BlockerService.shouldArmNativeLimit(
+          earnedMinutes: 6,
+          lastSetEarnedMinutes: 6,
+          forceRearm: false,
+        ),
+        isFalse,
+      );
+    });
+  });
+
   group('TimeBankService — business logic (1,000 steps = 30 min default formula)', () {
     test('minutesPer1kSteps default is 30', () {
       // The service requires Hive init so we test the formula constant directly.

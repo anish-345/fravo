@@ -92,7 +92,7 @@ class ZoAppBlockerPlugin : FlutterPlugin, MethodCallHandler, ActivityAware {
                 current.addAll(identifiers)
                 prefs.saveBlockedApps(current)
                 prefs.setBlockAll(false)
-                AppBlockerForegroundService.instance?.forceCheckBlockedApps()
+                AppBlockerForegroundService.instance?.checkCurrentForegroundApp()
                 context?.let { AppBlockerForegroundService.start(it) }
                 result.success(null)
             }

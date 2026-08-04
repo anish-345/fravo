@@ -38,12 +38,18 @@ class BlockerService {
     }
     try {
       await _blocker.setNotificationConfig(
-        notificationBannerTitle: 'Fravo Active',
+        notificationBannerTitle: 'Fravo Blocker Active',
         notificationBannerDescription: 'Monitoring screen time limits.',
         notificationIcon: 'ic_notification',
       );
     } catch (e) {
       debugPrint('BlockerService.setNotificationConfig error: $e');
+    }
+
+    try {
+      await evaluateBlockState();
+    } catch (e) {
+      debugPrint('BlockerService.initialize evaluateBlockState error: $e');
     }
   }
 
@@ -102,14 +108,33 @@ class BlockerService {
   bool _isEvaluating = false;
 
   /// Tracks which earned-minutes value we last programmed into the native
-  /// trip-wire so we don't reset it on every 30-second cycle.
-  /// -1 = never set this session (forces first-run setup).
-  int _lastSetEarnedMinutes = -1;
+  /// trip-wire. Persisted in Hive so app restarts don't re-arm the timer.
+  /// -1 = never set (forces first-run setup).
+  static const String _lastSetEarnedKey = 'lastSetEarnedMinutes';
+
+  static bool shouldArmNativeLimit({
+    required int earnedMinutes,
+    required int lastSetEarnedMinutes,
+    required bool forceRearm,
+  }) {
+    if (forceRearm) return true;
+    return earnedMinutes != lastSetEarnedMinutes;
+  }
+
+  int get _lastSetEarnedMinutes {
+    final box = Hive.box('time_bank');
+    return (box.get(_lastSetEarnedKey) as int?) ?? -1;
+  }
+
+  Future<void> _saveLastSetEarned(int value) async {
+    final box = Hive.box('time_bank');
+    await box.put(_lastSetEarnedKey, value);
+  }
 
   /// Call this whenever the blocked-app list changes or a daily reset happens,
   /// so the new apps receive proper native limits on the next evaluation.
   void resetLastSetEarned() {
-    _lastSetEarnedMinutes = -1;
+    Hive.box('time_bank').put(_lastSetEarnedKey, -1);
   }
 
   // ─────────────────────────────────────────────────────────────────────────
@@ -145,7 +170,7 @@ class BlockerService {
       await syncUsageFromNative();
 
       final earned = TimeBankService.instance.earnedMinutes;
-      final used   = TimeBankService.instance.usedMinutes;
+      final used = TimeBankService.instance.usedMinutes;
       final targets = TimeBankService.instance.blockedPackageNames;
 
       debugPrint(
@@ -173,7 +198,9 @@ class BlockerService {
         final reason = earned == 0
             ? 'no budget earned yet'
             : 'budget exhausted ($used/$earned min)';
-        debugPrint('BlockerService: 🚫 Blocking ${targets.length} app(s) — $reason.');
+        debugPrint(
+          'BlockerService: 🚫 Blocking ${targets.length} app(s) — $reason.',
+        );
         try {
           await _blocker.blockApps(targets);
           debugPrint('BlockerService: ✅ blockApps() called successfully.');
@@ -183,14 +210,15 @@ class BlockerService {
         // Clear the trip-wire record so that when the user earns new minutes
         // (budget goes from exhausted → positive), setAppTimeLimit is re-armed
         // from the correct remaining value at that moment.
-        _lastSetEarnedMinutes = -1;
-
+        await _saveLastSetEarned(-1);
       } else {
         // ── Budget available: unblock and arm the native trip-wire ─────────────
         debugPrint(
           'BlockerService: ✅ Budget available ($used/$earned min used) — unblocking.',
         );
-        try { await _blocker.unblockAll(); } catch (e) {
+        try {
+          await _blocker.unblockAll();
+        } catch (e) {
           debugPrint('unblockAll error: $e');
         }
 
@@ -200,7 +228,11 @@ class BlockerService {
         // The trip-wire is set to (earned - used) at this exact moment so
         // the OS timer starts from the correct remaining time — not from
         // the full earned budget or any other random value.
-        if (earned != _lastSetEarnedMinutes) {
+        if (shouldArmNativeLimit(
+          earnedMinutes: earned,
+          lastSetEarnedMinutes: _lastSetEarnedMinutes,
+          forceRearm: true,
+        )) {
           // Snapshot used NOW so the timer starts from the correct remaining
           // value at this exact moment (not a stale value from a prior cycle).
           final remaining = (earned - used).clamp(1, earned);
@@ -219,7 +251,9 @@ class BlockerService {
                 dailyLimitMinutes: remaining,
               );
               updatedPkgs.add(pkg);
-              debugPrint('BlockerService: trip-wire set → $pkg = $remaining min');
+              debugPrint(
+                'BlockerService: trip-wire set → $pkg = $remaining min',
+              );
             } catch (e) {
               debugPrint('setAppTimeLimit ($pkg) error: $e');
             }
@@ -231,17 +265,15 @@ class BlockerService {
             await TimeBankService.instance.resetNativeBaseline(updatedPkgs);
           }
           // Record the earned value so we don't re-arm on every 30s tick.
-          _lastSetEarnedMinutes = earned;
+          await _saveLastSetEarned(earned);
         }
       }
-
     } catch (e) {
       debugPrint('BlockerService.evaluateBlockState error: $e');
     } finally {
       _isEvaluating = false;
     }
   }
-
 
   // ── Usage sync (delta-based) ──────────────────────────────────────────────
 
@@ -459,10 +491,7 @@ class _BlockScreenState extends State<_BlockScreen>
                     child: appIcon != null
                         ? ClipRRect(
                             borderRadius: BorderRadius.circular(22),
-                            child: Image.memory(
-                              appIcon,
-                              fit: BoxFit.cover,
-                            ),
+                            child: Image.memory(appIcon, fit: BoxFit.cover),
                           )
                         : const Icon(
                             Icons.phone_android_rounded,

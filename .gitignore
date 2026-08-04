@@ -88,3 +88,6 @@ android/app/*.keystore
 android/stacktrace*.txt
 android/build_error*.log
 tools/
+
+# Local Netlify folder
+.netlify

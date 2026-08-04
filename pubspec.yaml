@@ -32,7 +32,8 @@ dependencies:
     sdk: flutter
   cupertino_icons: ^1.0.8
   health: ^11.0.0
-  zo_app_blocker: ^0.0.4
+  zo_app_blocker:
+    path: packages/zo_app_blocker
   hive: ^2.2.3
   hive_flutter: ^1.1.0
   intl: ^0.19.0
@@ -56,6 +57,24 @@ dev_dependencies:
   # package. See that file for information about deactivating specific lint
   # rules and activating additional ones.
   flutter_lints: ^6.0.0
+  flutter_launcher_icons: "^0.13.1"
+
+flutter_launcher_icons:
+  android: true
+  ios: true
+  image_path: "icon.jpeg"
+  adaptive_icon_background: "#4A90E2"
+  adaptive_icon_foreground: "icon.jpeg"
+  min_sdk_android: 21
+  web:
+    generate: true
+    image_path: "icon.jpeg"
+  windows:
+    generate: true
+    image_path: "icon.jpeg"
+  macos:
+    generate: true
+    image_path: "icon.jpeg"
 
 # For information on the generic Dart part of this file, see the
 # following page: https://dart.dev/tools/pub/pubspec

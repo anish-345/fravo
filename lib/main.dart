@@ -17,6 +17,7 @@ Future<void> main() async {
   await TimeBankService.instance.init();
   await BlockerService.instance.initialize();
   await HealthService.instance.initPedometerListener();
+  await BlockerService.instance.evaluateBlockState();
 
   runApp(const FravoApp());
 }
@@ -80,10 +81,8 @@ class _FravoDashboardState extends State<FravoDashboard>
   void initState() {
     super.initState();
     WidgetsBinding.instance.addObserver(this);
-    // Delay first refresh by 2 s so the native service has time to start.
     WidgetsBinding.instance.addPostFrameCallback((_) async {
-      await Future.delayed(const Duration(seconds: 2));
-      _refresh();
+      await _refresh();
       _startUsageTimer();
     });
   }
@@ -104,7 +103,7 @@ class _FravoDashboardState extends State<FravoDashboard>
       // Catch any midnight crossing that happened while backgrounded.
       _refresh();
     } else if (state == AppLifecycleState.paused ||
-               state == AppLifecycleState.detached) {
+        state == AppLifecycleState.detached) {
       // Stop the periodic timer — no need to poll while invisible.
       _usageTimer?.cancel();
       _usageTimer = null;
@@ -125,7 +124,6 @@ class _FravoDashboardState extends State<FravoDashboard>
     if (mounted) setState(() {});
   }
 
-
   void _startUsageTimer() {
     // Guard: don't create a second timer if one is already running.
     if (_usageTimer != null && _usageTimer!.isActive) return;
@@ -139,7 +137,6 @@ class _FravoDashboardState extends State<FravoDashboard>
     await _timeBank.resetDailyIfNeeded();
     await _pullUsageAndRefresh();
   }
-
 
   void _openAppSelector() {
     showModalBottomSheet(
@@ -449,7 +446,9 @@ class _FravoDashboardState extends State<FravoDashboard>
                               Container(
                                 padding: const EdgeInsets.all(8),
                                 decoration: BoxDecoration(
-                                  color: const Color(0xFFEF4444).withValues(alpha: 0.15),
+                                  color: const Color(
+                                    0xFFEF4444,
+                                  ).withValues(alpha: 0.15),
                                   borderRadius: BorderRadius.circular(10),
                                 ),
                                 child: const Icon(
@@ -486,7 +485,8 @@ class _FravoDashboardState extends State<FravoDashboard>
                             label: 'Usage Access',
                             isGranted: usageOk,
                             onTap: () async {
-                              await _blockerService.requestUsageStatsPermission();
+                              await _blockerService
+                                  .requestUsageStatsPermission();
                               if (mounted) setState(() {});
                             },
                           ),
@@ -530,7 +530,9 @@ class _FravoDashboardState extends State<FravoDashboard>
                             Text(
                               'SCREEN TIME LEFT',
                               style: TextStyle(
-                                color: const Color(0xFF64748B).withValues(alpha: 0.8),
+                                color: const Color(
+                                  0xFF64748B,
+                                ).withValues(alpha: 0.8),
                                 fontSize: 10,
                                 fontWeight: FontWeight.bold,
                                 letterSpacing: 1.5,
@@ -595,13 +597,21 @@ class _FravoDashboardState extends State<FravoDashboard>
                               ),
                               decoration: BoxDecoration(
                                 color: remaining > 0
-                                    ? const Color(0xFF10B981).withValues(alpha: 0.12)
-                                    : const Color(0xFFEF4444).withValues(alpha: 0.12),
+                                    ? const Color(
+                                        0xFF10B981,
+                                      ).withValues(alpha: 0.12)
+                                    : const Color(
+                                        0xFFEF4444,
+                                      ).withValues(alpha: 0.12),
                                 borderRadius: BorderRadius.circular(16),
                                 border: Border.all(
                                   color: remaining > 0
-                                      ? const Color(0xFF10B981).withValues(alpha: 0.3)
-                                      : const Color(0xFFEF4444).withValues(alpha: 0.3),
+                                      ? const Color(
+                                          0xFF10B981,
+                                        ).withValues(alpha: 0.3)
+                                      : const Color(
+                                          0xFFEF4444,
+                                        ).withValues(alpha: 0.3),
                                   width: 1,
                                 ),
                               ),
@@ -633,12 +643,15 @@ class _FravoDashboardState extends State<FravoDashboard>
                             crossAxisAlignment: CrossAxisAlignment.start,
                             children: [
                               Row(
-                                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                                mainAxisAlignment:
+                                    MainAxisAlignment.spaceBetween,
                                 children: [
                                   Container(
                                     padding: const EdgeInsets.all(8),
                                     decoration: BoxDecoration(
-                                      color: const Color(0xFFEF4444).withValues(alpha: 0.12),
+                                      color: const Color(
+                                        0xFFEF4444,
+                                      ).withValues(alpha: 0.12),
                                       borderRadius: BorderRadius.circular(10),
                                     ),
                                     child: const Icon(
@@ -653,7 +666,9 @@ class _FravoDashboardState extends State<FravoDashboard>
                                       vertical: 3,
                                     ),
                                     decoration: BoxDecoration(
-                                      color: const Color(0xFFEF4444).withValues(alpha: 0.12),
+                                      color: const Color(
+                                        0xFFEF4444,
+                                      ).withValues(alpha: 0.12),
                                       borderRadius: BorderRadius.circular(12),
                                     ),
                                     child: Text(
@@ -696,10 +711,15 @@ class _FravoDashboardState extends State<FravoDashboard>
                                   child: Column(
                                     mainAxisAlignment: MainAxisAlignment.center,
                                     children: blockedApps.take(3).map((pkg) {
-                                      final name = _timeBank.displayNameFor(pkg);
-                                      final usedMins = _timeBank.getUsedMinutesForApp(pkg);
+                                      final name = _timeBank.displayNameFor(
+                                        pkg,
+                                      );
+                                      final usedMins = _timeBank
+                                          .getUsedMinutesForApp(pkg);
                                       return Padding(
-                                        padding: const EdgeInsets.only(bottom: 8),
+                                        padding: const EdgeInsets.only(
+                                          bottom: 8,
+                                        ),
                                         child: Row(
                                           children: [
                                             _AppIconWidget(
@@ -830,9 +850,6 @@ class _FravoDashboardState extends State<FravoDashboard>
                 textAlign: TextAlign.center,
                 style: const TextStyle(fontSize: 12, color: Color(0xFF64748B)),
               ),
-
-
-
             ],
           ),
         ),
@@ -840,7 +857,6 @@ class _FravoDashboardState extends State<FravoDashboard>
     );
   }
 }
-
 
 // ── Permission Status Tile ────────────────────────────────────────────────────
 

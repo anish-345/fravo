@@ -22,11 +22,11 @@ class BootAndRestartReceiver : BroadcastReceiver() {
         private const val TAG = "FravoBootReceiver"
 
         /**
-         * The service class name published by zo_app_blocker.
-         * If the package ever renames it, update this constant.
+         * Fully-qualified class name of the blocker foreground service
+         * declared in the zo_app_blocker plugin.
          */
         private const val BLOCKER_SERVICE_CLASS =
-            "com.zo.app_blocker.ZoAppBlockerService"
+            "com.example.zo_app_blocker.AppBlockerForegroundService"
     }
 
     override fun onReceive(context: Context, intent: Intent) {

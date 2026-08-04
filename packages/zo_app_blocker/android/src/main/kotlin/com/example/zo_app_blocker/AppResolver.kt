@@ -17,17 +17,24 @@ class AppResolver(private val context: Context) {
         val launcherIntent = Intent(Intent.ACTION_MAIN, null).apply {
             addCategory(Intent.CATEGORY_LAUNCHER)
         }
+        
+        // Get all apps that can handle the launcher intent
         val resolveInfoList = pm.queryIntentActivities(launcherIntent, 0)
         
+        // Get the default launcher package to exclude it
         val launcherPackage = pm.resolveActivity(
             Intent(Intent.ACTION_MAIN).apply { addCategory(Intent.CATEGORY_HOME) },
             PackageManager.MATCH_DEFAULT_ONLY
         )?.activityInfo?.packageName
 
+        // Filter out system apps and launcher
         resolveInfoList
             .filter { info ->
                 val pkg = info.activityInfo.packageName
-                pkg != context.packageName && pkg != launcherPackage && pkg != "com.android.launcher"
+                pkg != context.packageName && 
+                pkg != launcherPackage && 
+                pkg != "com.android.launcher" &&
+                pkg != "com.android.systemui"
             }
             .mapNotNull { info ->
                 try {
