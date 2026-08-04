@@ -76,19 +76,21 @@ class UltraGlassContainer extends StatelessWidget {
         // Iridescent rainbow reflection overlay
         if (showIridescence)
           Positioned.fill(
-            child: ClipRRect(
-              borderRadius: BorderRadius.circular(borderRadius),
-              child: Container(
-                decoration: BoxDecoration(
-                  gradient: LinearGradient(
-                    colors: [
-                      Colors.cyan.withValues(alpha: 0.03),
-                      Colors.pink.withValues(alpha: 0.02),
-                      Colors.yellow.withValues(alpha: 0.02),
-                      Colors.purple.withValues(alpha: 0.01),
-                    ],
-                    begin: Alignment.topLeft,
-                    end: Alignment.bottomRight,
+            child: IgnorePointer(
+              child: ClipRRect(
+                borderRadius: BorderRadius.circular(borderRadius),
+                child: Container(
+                  decoration: BoxDecoration(
+                    gradient: LinearGradient(
+                      colors: [
+                        Colors.cyan.withValues(alpha: 0.03),
+                        Colors.pink.withValues(alpha: 0.02),
+                        Colors.yellow.withValues(alpha: 0.02),
+                        Colors.purple.withValues(alpha: 0.01),
+                      ],
+                      begin: Alignment.topLeft,
+                      end: Alignment.bottomRight,
+                    ),
                   ),
                 ),
               ),
@@ -473,6 +475,9 @@ class GlassMetricCard extends StatelessWidget {
   final String? unit;
   final IconData icon;
   final Color iconColor;
+  final String? subtitle;
+  final IconData? subtitleIcon;
+  final Color? subtitleColor;
   
   const GlassMetricCard({
     super.key,
@@ -481,10 +486,16 @@ class GlassMetricCard extends StatelessWidget {
     this.unit,
     required this.icon,
     this.iconColor = const Color(0xFF4A90E2),
+    this.subtitle,
+    this.subtitleIcon,
+    this.subtitleColor,
   });
 
   @override
   Widget build(BuildContext context) {
+    final subColor = subtitleColor ?? iconColor;
+    final subIcon = subtitleIcon ?? Icons.straighten_rounded;
+
     return UltraGlassContainer(
       borderRadius: 24,
       padding: const EdgeInsets.all(20),
@@ -550,6 +561,27 @@ class GlassMetricCard extends StatelessWidget {
               letterSpacing: 0.2,
             ),
           ),
+          if (subtitle != null) ...[
+            const SizedBox(height: 6),
+            Row(
+              children: [
+                Icon(
+                  subIcon,
+                  size: 13,
+                  color: subColor,
+                ),
+                const SizedBox(width: 4),
+                Text(
+                  subtitle!,
+                  style: TextStyle(
+                    fontSize: 12,
+                    fontWeight: FontWeight.w600,
+                    color: subColor,
+                  ),
+                ),
+              ],
+            ),
+          ],
         ],
       ),
     );

@@ -1,5 +1,6 @@
 import 'dart:convert';
 
+import 'package:flutter/foundation.dart';
 import 'package:hive_flutter/hive_flutter.dart';
 
 /// App preset definition for popular applications
@@ -51,6 +52,11 @@ class TimeBankService {
   /// (packageName → nativeUsageMinutes at the time we last synced).
   /// Used to compute deltas so relaunch doesn't reset usedMinutes.
   static const String _nativeUsageBaselineKey = 'nativeUsageBaseline';
+
+  /// Per-app used minutes: JSON-encoded `Map<String, int>` (packageName → usedMinutes).
+  static const String _perAppUsedMinutesKey = 'perAppUsedMinutes';
+
+  // (limit-set tracking keys removed — now using resetNativeBaseline instead)
 
   static const String _lastResetDayKey = 'lastResetDay';
 
@@ -113,6 +119,33 @@ class TimeBankService {
   int get remainingScreenTime =>
       (earnedMinutes - usedMinutes).clamp(0, earnedMinutes > 0 ? earnedMinutes : 0);
 
+  /// Map of packageName -> usedMinutes consumed per blocked application today.
+  Map<String, int> get perAppUsedMinutes {
+    final raw = _box?.get(_perAppUsedMinutesKey) as String?;
+    if (raw == null) return {};
+    try {
+      final decoded = jsonDecode(raw) as Map<String, dynamic>;
+      return decoded.map((k, v) => MapEntry(k, (v as num).toInt()));
+    } catch (_) {
+      return {};
+    }
+  }
+
+  /// Returns used minutes for a specific blocked package.
+  int getUsedMinutesForApp(String packageName) =>
+      perAppUsedMinutes[packageName] ?? 0;
+
+  /// After calling [setAppTimeLimit] (which resets the native counter to 0),
+  /// zero out our stored baseline for those packages so the next delta-sync
+  /// correctly treats native usage as measured from 0.
+  Future<void> resetNativeBaseline(List<String> packageNames) async {
+    final baseline = Map<String, int>.from(_nativeBaseline);
+    for (final pkg in packageNames) {
+      baseline[pkg] = 0;
+    }
+    await _saveNativeBaseline(baseline);
+  }
+
   /// Returns the stored native-usage baseline map (pkg → minutes).
   Map<String, int> get _nativeBaseline {
     final raw = _box?.get(_nativeUsageBaselineKey) as String?;
@@ -130,30 +163,58 @@ class TimeBankService {
   }
 
   /// Delta-sync: called by BlockerService with the current raw native usage
-  /// map (packageName → minutes). Only the *increase* since the last baseline
-  /// is added to usedMinutes — so relaunching the app never resets used time.
+  /// map (packageName → minutes).
   Future<void> syncNativeUsageDelta(Map<String, int> currentNativeUsage) async {
-    final baseline = _nativeBaseline;
-    int delta = 0;
+    final baseline = Map<String, int>.from(_nativeBaseline);
+    final perApp = Map<String, int>.from(perAppUsedMinutes);
+    int totalDelta = 0;
+    final newBaseline = <String, int>{};
 
     for (final entry in currentNativeUsage.entries) {
       final pkg = entry.key;
       final currentMinutes = entry.value;
-      final baselineMinutes = baseline[pkg] ?? currentMinutes; // first sync: baseline = current
+      int baselineMinutes = baseline[pkg] ?? 0;
+
+      // If the native counter was reset (e.g. after setAppTimeLimit or OS
+      // midnight rollover), current < baseline.  Treat the entire current
+      // value as fresh usage since the reset (baseline effectively = 0).
+      if (currentMinutes < baselineMinutes) {
+        debugPrint(
+          'TimeBankService: native counter reset for $pkg '
+          '(was $baselineMinutes, now $currentMinutes) — treating as delta from 0.',
+        );
+        baselineMinutes = 0;
+      }
+
       final pkgDelta = currentMinutes - baselineMinutes;
-      if (pkgDelta > 0) delta += pkgDelta;
+      if (pkgDelta > 0) {
+        totalDelta += pkgDelta;
+        perApp[pkg] = (perApp[pkg] ?? 0) + pkgDelta;
+      }
+
+      // Always record current value as the new baseline for this package.
+      newBaseline[pkg] = currentMinutes;
     }
 
-    if (delta > 0) {
-      final newUsed = (usedMinutes + delta).clamp(0, earnedMinutes > 0 ? earnedMinutes : usedMinutes + delta);
+    // Preserve baseline entries for packages not present in this sync cycle
+    // (e.g. a package was temporarily unavailable from the native layer).
+    for (final entry in baseline.entries) {
+      if (!newBaseline.containsKey(entry.key)) {
+        newBaseline[entry.key] = entry.value;
+      }
+    }
+
+    if (totalDelta > 0) {
+      // Do NOT clamp here — we want usedMinutes to exceed earnedMinutes when
+      // the user has over-spent, so the blocker can detect remaining <= 0.
+      final newUsed = usedMinutes + totalDelta;
       await _box?.put(_usedMinutesKey, newUsed);
+      await _box?.put(_perAppUsedMinutesKey, jsonEncode(perApp));
+      debugPrint(
+        'TimeBankService: +$totalDelta min delta → usedMinutes=$newUsed',
+      );
     }
 
-    // Always update baseline to current values so next sync measures correctly.
-    final newBaseline = <String, int>{};
-    for (final entry in currentNativeUsage.entries) {
-      newBaseline[entry.key] = entry.value;
-    }
     await _saveNativeBaseline(newBaseline);
   }
 
@@ -227,10 +288,22 @@ class TimeBankService {
     if (lastReset != today) {
       await _box?.put(_totalStepsKey, 0);
       await _box?.put(_usedMinutesKey, 0);
+      await _box?.put(_perAppUsedMinutesKey, jsonEncode({}));
       await _saveNativeBaseline({});
       await _box?.put(_lastResetDayKey, today);
+      // Reset the earned-minutes guard in BlockerService so that
+      // setAppTimeLimit is re-programmed with the fresh budget on the new day.
+      // Import is avoided via a late reference resolved at call-time.
+      _onDailyReset?.call();
     }
   }
+
+  /// Optional callback invoked after a daily reset.
+  /// Wired up by BlockerService at startup to call resetLastSetEarned().
+  VoidCallback? _onDailyReset;
+
+  /// Register the daily-reset callback (called once from BlockerService.initialize).
+  void setDailyResetCallback(VoidCallback cb) => _onDailyReset = cb;
 
   // ── Helpers ───────────────────────────────────────────────────────────────
 

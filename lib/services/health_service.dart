@@ -31,22 +31,10 @@ class HealthService {
   int _latestSensorSteps = 0;
   int _pendingSteps = 0;
 
-  /// Last step count we actually pushed to TimeBankService (avoids redundant calls).
-  int _lastPushedSteps = 0;
-
-  /// Last time we evaluated block state (for rate limiting).
-  DateTime _lastBlockEval = DateTime(2000);
-
   static const List<HealthDataType> _types = [HealthDataType.STEPS];
 
-  /// Minimum step increase before we bother re-evaluating block state.
-  static const int _minStepDeltaForEval = 10;
-
   /// Debounce duration for pedometer events (reduces CPU wake-ups).
-  static const Duration _pedometerDebounce = Duration(seconds: 3);
-
-  /// Minimum interval between block state evaluations (rate limiting).
-  static const Duration _minBlockEvalInterval = Duration(minutes: 1);
+  static const Duration _pedometerDebounce = Duration(seconds: 1);
 
   // ── Configuration ─────────────────────────────────────────────────────────
 
@@ -148,7 +136,8 @@ class HealthService {
     }
   }
 
-  /// Pushes steps to TimeBankService with rate limiting.
+  /// Pushes steps to TimeBankService and re-evaluates block state only when
+  /// the earned minutes actually increase (not on every pedometer event).
   Future<void> _autoUpdateSteps(int newSteps) async {
     final timeBank = TimeBankService.instance;
     final prevEarned = timeBank.earnedMinutes;
@@ -156,31 +145,18 @@ class HealthService {
     await timeBank.updateSteps(newSteps);
 
     final newEarned = timeBank.earnedMinutes;
-    final stepDelta = newSteps - _lastPushedSteps;
-    final now = DateTime.now();
-    final timeSinceLastEval = now.difference(_lastBlockEval);
 
-    final shouldEvaluate =
-        newEarned != prevEarned &&
-        (timeSinceLastEval >= _minBlockEvalInterval ||
-            stepDelta >= _minStepDeltaForEval);
-
-    if (shouldEvaluate) {
-      _lastPushedSteps = newSteps;
-      _lastBlockEval = now;
-
+    // Only re-evaluate when earned budget actually changes.
+    // Evaluating on every 20 steps was wiping the native baseline too often.
+    if (newEarned != prevEarned) {
       try {
         debugPrint(
-          '🔄 Evaluating block state (steps: $newSteps, earned: $newEarned min)',
+          '🔄 Earned minutes changed ($prevEarned → $newEarned min), re-evaluating block state.',
         );
         await BlockerService.instance.evaluateBlockState();
       } catch (e) {
         debugPrint('_autoUpdateSteps evaluateBlockState error: $e');
       }
-    } else {
-      debugPrint(
-        '⏭️ Skipping block eval (rate limited, ${timeSinceLastEval.inSeconds}s ago)',
-      );
     }
   }
 

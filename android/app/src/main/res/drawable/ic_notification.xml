@@ -1,0 +1,98 @@
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="24dp"
+    android:height="24dp"
+    android:viewportWidth="24"
+    android:viewportHeight="24">
+
+    <!-- Circular arc ring (activity progress ring) -->
+    <!-- Full circle outline, thin stroke represented as filled ring shape -->
+    <!-- Outer arc: drawn as a thick ring using two concentric circles minus overlap -->
+    <!-- We use path arcs for the ring segments -->
+
+    <!-- Ring arc: ~300 degrees (open at bottom-left like the logo) -->
+    <path
+        android:fillColor="#FFFFFF"
+        android:pathData="
+          M 12,2
+          A 10,10 0 1,1 4.5,18.5
+          L 5.9,17.4
+          A 8.4,8.4 0 1,0 12,3.6
+          Z" />
+
+    <!-- Walking person silhouette -->
+    <!-- Head -->
+    <path
+        android:fillColor="#FFFFFF"
+        android:pathData="M 12,5.2 A 1.1,1.1 0 1,0 12,3.0 A 1.1,1.1 0 0,0 12,5.2 Z" />
+
+    <!-- Body torso -->
+    <path
+        android:fillColor="#FFFFFF"
+        android:pathData="
+          M 11.3,5.5
+          L 10.5,9.2
+          L 12.8,9.2
+          L 12.2,5.5
+          Z" />
+
+    <!-- Left arm (swung back) -->
+    <path
+        android:fillColor="#FFFFFF"
+        android:pathData="
+          M 11.3,6.2
+          L 9.5,8.2
+          L 10.2,8.7
+          L 11.9,6.8
+          Z" />
+
+    <!-- Right arm (swung forward) -->
+    <path
+        android:fillColor="#FFFFFF"
+        android:pathData="
+          M 12.2,6.2
+          L 13.8,7.8
+          L 14.4,7.2
+          L 12.8,5.7
+          Z" />
+
+    <!-- Left leg (stride back) -->
+    <path
+        android:fillColor="#FFFFFF"
+        android:pathData="
+          M 11.0,9.0
+          L 9.5,12.5
+          L 10.4,12.8
+          L 11.8,9.4
+          Z" />
+
+    <!-- Left lower leg / foot -->
+    <path
+        android:fillColor="#FFFFFF"
+        android:pathData="
+          M 9.7,12.3
+          L 8.8,14.8
+          L 9.8,15.0
+          L 10.5,12.6
+          Z" />
+
+    <!-- Right leg (stride forward) -->
+    <path
+        android:fillColor="#FFFFFF"
+        android:pathData="
+          M 12.5,9.0
+          L 13.8,12.2
+          L 14.7,11.9
+          L 13.3,8.8
+          Z" />
+
+    <!-- Right lower leg / foot -->
+    <path
+        android:fillColor="#FFFFFF"
+        android:pathData="
+          M 13.8,11.8
+          L 14.5,14.5
+          L 15.6,14.5
+          L 14.7,11.6
+          Z" />
+
+</vector>

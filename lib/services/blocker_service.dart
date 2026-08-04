@@ -2,6 +2,8 @@ import 'dart:io';
 import 'dart:typed_data';
 
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
+import 'package:hive_flutter/hive_flutter.dart';
 import 'package:zo_app_blocker/zo_app_blocker.dart';
 
 import 'time_bank.dart';
@@ -24,6 +26,10 @@ class BlockerService {
 
   /// Initialises the blocker. Safe to call at startup — errors are caught.
   Future<void> initialize() async {
+    // Wire the daily-reset callback so the earned-minutes guard is cleared
+    // whenever TimeBankService.resetDailyIfNeeded() triggers a new-day reset.
+    TimeBankService.instance.setDailyResetCallback(resetLastSetEarned);
+
     if (!Platform.isAndroid) return;
     try {
       await _blocker.initialize(blockScreenCallback: onBlockScreenRequested);
@@ -34,6 +40,7 @@ class BlockerService {
       await _blocker.setNotificationConfig(
         notificationBannerTitle: 'Fravo Active',
         notificationBannerDescription: 'Monitoring screen time limits.',
+        notificationIcon: 'ic_notification',
       );
     } catch (e) {
       debugPrint('BlockerService.setNotificationConfig error: $e');
@@ -90,90 +97,157 @@ class BlockerService {
     }
   }
 
-  // ── Block-state evaluation ────────────────────────────────────────────────
+  // ── Concurrency guard + native limit tracking ────────────────────────────
+  /// Prevents concurrent evaluations from double-counting usage.
+  bool _isEvaluating = false;
 
-  /// Tracks whether the native time limit has been set for each package.
-  /// setAppTimeLimit RESETS the native usage counter, so we call it ONCE per
-  /// package (when earned minutes first becomes > 0). After that we only
-  /// toggle block/unblock — never call setAppTimeLimit again.
-  final Map<String, bool> _limitSet = {};
+  /// Tracks which earned-minutes value we last programmed into the native
+  /// trip-wire so we don't reset it on every 30-second cycle.
+  /// -1 = never set this session (forces first-run setup).
+  int _lastSetEarnedMinutes = -1;
 
-  /// Sets/removes the native time limit for every blocked app and enforces
-  /// the block state. Handles the full list of blocked packages.
+  /// Call this whenever the blocked-app list changes or a daily reset happens,
+  /// so the new apps receive proper native limits on the next evaluation.
+  void resetLastSetEarned() {
+    _lastSetEarnedMinutes = -1;
+  }
+
+  // ─────────────────────────────────────────────────────────────────────────
+  /// Core enforcement loop.
   ///
-  /// CRITICAL: Calling [ZoAppBlocker.setAppTimeLimit] resets the native
-  /// usage counter to 0. We therefore set the limit ONLY once per package
-  /// (the first time earned > 0), then only toggle [blockApps]/[unblockAll].
+  /// Called every 30 s by the usage timer and whenever earned minutes change.
+  ///
+  /// Design:
+  /// • [syncUsageFromNative] runs first so [TimeBankService.usedMinutes] is
+  ///   current before any decision is made.
+  /// • [blockApps] is the PRIMARY enforcer — it fires every cycle when the
+  ///   budget is exhausted.
+  /// • [setAppTimeLimit] is a BACKGROUND fallback.  It is called only once
+  ///   per new earned-minutes value so the OS timer starts at the correct
+  ///   remaining time and counts down naturally without being reset every 30 s.
+  ///   After each call the native counter resets to 0, so we also zero our
+  ///   stored baseline via [TimeBankService.resetNativeBaseline].
   Future<void> evaluateBlockState() async {
     if (!Platform.isAndroid) return;
-
-    final earned = TimeBankService.instance.earnedMinutes;
-    final remaining = TimeBankService.instance.remainingScreenTime;
-    final targets = TimeBankService.instance.blockedPackageNames;
-
-    if (targets.isEmpty) return;
-
+    if (_isEvaluating) {
+      debugPrint('BlockerService: skipped — already evaluating.');
+      return;
+    }
+    _isEvaluating = true;
     try {
-      if (remaining <= 0) {
-        // Budget exhausted — block every target package immediately.
-        try {
-          await _blocker.unblockAll();
-        } catch (_) {}
+      // ── Step 0: daily reset check ───────────────────────────────────────────
+      // Run this here (not only on app open) so a midnight crossing that
+      // happens while the app is backgrounded is caught on the next enforcement
+      // cycle driven by the native service.
+      await TimeBankService.instance.resetDailyIfNeeded();
+
+      // ── Step 1: sync native usage → update usedMinutes in Hive ─────────────
+      await syncUsageFromNative();
+
+      final earned = TimeBankService.instance.earnedMinutes;
+      final used   = TimeBankService.instance.usedMinutes;
+      final targets = TimeBankService.instance.blockedPackageNames;
+
+      debugPrint(
+        'BlockerService: earned=$earned | used=$used | remaining=${earned - used} | apps=${targets.length}',
+      );
+
+      if (targets.isEmpty) {
+        debugPrint('BlockerService: no blocked apps configured — skipping.');
+        return;
+      }
+
+      // ── Step 2: decide block vs. allow ──────────────────────────────────────
+      //
+      // Block when:
+      //   • earned == 0  → user hasn't walked at all today, no budget granted
+      //   • used >= earned > 0 → budget fully consumed
+      //
+      // Allow when:
+      //   • earned > 0 && used < earned → budget available
+
+      final bool shouldBlock = (earned == 0) || (earned > 0 && used >= earned);
+
+      if (shouldBlock) {
+        // ── PRIMARY enforcer: blockApps ────────────────────────────────────────
+        final reason = earned == 0
+            ? 'no budget earned yet'
+            : 'budget exhausted ($used/$earned min)';
+        debugPrint('BlockerService: 🚫 Blocking ${targets.length} app(s) — $reason.');
         try {
           await _blocker.blockApps(targets);
-          debugPrint(
-            'BlockerService: Blocked ${targets.length} package(s). Earned: $earned min, Used: ${TimeBankService.instance.usedMinutes} min.',
-          );
+          debugPrint('BlockerService: ✅ blockApps() called successfully.');
         } catch (e) {
-          debugPrint('BlockerService.blockApps error: $e');
+          debugPrint('blockApps error: $e');
         }
-      } else if (earned > 0) {
-        // Budget available — unblock and ensure the native limit is set.
-        try {
-          await _blocker.unblockAll();
-        } catch (_) {}
-        for (final pkg in targets) {
-          if (!(_limitSet[pkg] ?? false)) {
-            // First time seeing this package with earned > 0: set limit once.
+        // Clear the trip-wire record so that when the user earns new minutes
+        // (budget goes from exhausted → positive), setAppTimeLimit is re-armed
+        // from the correct remaining value at that moment.
+        _lastSetEarnedMinutes = -1;
+
+      } else {
+        // ── Budget available: unblock and arm the native trip-wire ─────────────
+        debugPrint(
+          'BlockerService: ✅ Budget available ($used/$earned min used) — unblocking.',
+        );
+        try { await _blocker.unblockAll(); } catch (e) {
+          debugPrint('unblockAll error: $e');
+        }
+
+        // Update native trip-wire ONLY when earned budget changes.
+        // This prevents resetting the OS countdown timer every 30 s cycle.
+        //
+        // The trip-wire is set to (earned - used) at this exact moment so
+        // the OS timer starts from the correct remaining time — not from
+        // the full earned budget or any other random value.
+        if (earned != _lastSetEarnedMinutes) {
+          // Snapshot used NOW so the timer starts from the correct remaining
+          // value at this exact moment (not a stale value from a prior cycle).
+          final remaining = (earned - used).clamp(1, earned);
+          debugPrint(
+            'BlockerService: earned changed $earned min '
+            '(was $_lastSetEarnedMinutes) '
+            '→ setting native trip-wire to $remaining min '
+            '(used=$used at set time).',
+          );
+
+          final List<String> updatedPkgs = [];
+          for (final pkg in targets) {
             try {
               await _blocker.setAppTimeLimit(
                 packageName: pkg,
-                dailyLimitMinutes: earned,
+                dailyLimitMinutes: remaining,
               );
-              _limitSet[pkg] = true;
-              debugPrint(
-                'BlockerService: Set initial limit for $pkg → $earned min.',
-              );
+              updatedPkgs.add(pkg);
+              debugPrint('BlockerService: trip-wire set → $pkg = $remaining min');
             } catch (e) {
-              debugPrint('BlockerService.setAppTimeLimit ($pkg) error: $e');
+              debugPrint('setAppTimeLimit ($pkg) error: $e');
             }
           }
-          // On subsequent calls with remaining > 0: skip setAppTimeLimit
-          // to avoid resetting the native usage counter.
+
+          if (updatedPkgs.isNotEmpty) {
+            // setAppTimeLimit resets the native counter to 0.
+            // Zero our baseline so the next delta-sync starts from 0.
+            await TimeBankService.instance.resetNativeBaseline(updatedPkgs);
+          }
+          // Record the earned value so we don't re-arm on every 30s tick.
+          _lastSetEarnedMinutes = earned;
         }
-      } else {
-        // earned == 0: no screen time earned yet — ensure no limits are set.
-        try {
-          await _blocker.unblockAll();
-        } catch (_) {}
-        for (final pkg in targets) {
-          try {
-            await _blocker.removeAppTimeLimit(pkg);
-          } catch (_) {}
-        }
-        _limitSet.clear();
       }
+
     } catch (e) {
       debugPrint('BlockerService.evaluateBlockState error: $e');
+    } finally {
+      _isEvaluating = false;
     }
   }
+
 
   // ── Usage sync (delta-based) ──────────────────────────────────────────────
 
   /// Reads native usage for every blocked package, then passes the raw map to
   /// [TimeBankService.syncNativeUsageDelta] which computes and stores only the
-  /// increase since the last sync — preserving previously accumulated time
-  /// across app relaunches.
+  /// increase since the last sync.
   Future<void> syncUsageFromNative() async {
     if (!Platform.isAndroid) return;
     try {
@@ -182,11 +256,19 @@ class BlockerService {
         TimeBankService.instance.blockedPackageNames,
       );
 
+      debugPrint(
+        'BlockerService.syncUsageFromNative: ${limits.length} native entries, '
+        'watching ${targets.length} package(s).',
+      );
+
       // Build a map of packageName → usedMinutes from the native layer.
       final Map<String, int> currentUsage = {};
       for (final limit in limits) {
         if (targets.contains(limit.packageName)) {
           currentUsage[limit.packageName] = limit.usedMinutes;
+          debugPrint(
+            '  native: ${limit.packageName} → used=${limit.usedMinutes} min',
+          );
         }
       }
 
@@ -241,11 +323,18 @@ class BlockerService {
     debugPrint('BlockerService: app list cache cleared.');
   }
 
-  /// Fetches the PNG bytes of an app icon. Returns null if unavailable.
+  static final Map<String, Uint8List?> _iconMemoryCache = {};
+
+  /// Fetches the PNG bytes of an app icon. Cached in memory for speed.
   Future<Uint8List?> getAppIcon(String packageName) async {
     if (!Platform.isAndroid) return null;
+    if (_iconMemoryCache.containsKey(packageName)) {
+      return _iconMemoryCache[packageName];
+    }
     try {
-      return await _blocker.getAppIcon(packageName);
+      final icon = await _blocker.getAppIcon(packageName);
+      _iconMemoryCache[packageName] = icon;
+      return icon;
     } catch (_) {
       return null;
     }
@@ -271,132 +360,222 @@ void onBlockScreenRequested() {
     builder: (blockCtx) {
       return MaterialApp(
         debugShowCheckedModeBanner: false,
-        theme: ThemeData.dark(useMaterial3: true),
-        home: Scaffold(
-          backgroundColor: const Color(0xFF0F172A),
-          body: Container(
-            width: double.infinity,
-            height: double.infinity,
-            decoration: const BoxDecoration(
-              gradient: LinearGradient(
-                begin: Alignment.topCenter,
-                end: Alignment.bottomCenter,
-                colors: [Color(0xFF1E293B), Color(0xFF0F172A)],
-              ),
-            ),
-            child: SafeArea(
-              child: Padding(
-                padding: const EdgeInsets.symmetric(
-                  horizontal: 28,
-                  vertical: 24,
-                ),
-                child: Column(
-                  mainAxisAlignment: MainAxisAlignment.center,
-                  children: [
-                    Container(
-                      padding: const EdgeInsets.all(20),
-                      decoration: BoxDecoration(
-                        color: Colors.white.withAlpha(10),
-                        shape: BoxShape.circle,
-                        border: Border.all(
-                          color: Colors.redAccent.withAlpha(80),
-                          width: 2,
-                        ),
-                      ),
-                      child: blockCtx.appIcon != null
-                          ? ClipRRect(
-                              borderRadius: BorderRadius.circular(16),
-                              child: Image.memory(
-                                blockCtx.appIcon!,
-                                width: 64,
-                                height: 64,
-                                fit: BoxFit.cover,
-                              ),
-                            )
-                          : const Icon(
-                              Icons.lock_rounded,
-                              size: 48,
-                              color: Colors.redAccent,
+        // Light theme mirrors Android's native Digital Wellbeing pause screen
+        theme: ThemeData(
+          brightness: Brightness.light,
+          useMaterial3: true,
+          scaffoldBackgroundColor: const Color(0xFFF8F9FA),
+        ),
+        home: _BlockScreen(blockCtx: blockCtx),
+      );
+    },
+  );
+}
+
+class _BlockScreen extends StatefulWidget {
+  final dynamic blockCtx;
+  const _BlockScreen({required this.blockCtx});
+
+  @override
+  State<_BlockScreen> createState() => _BlockScreenState();
+}
+
+class _BlockScreenState extends State<_BlockScreen>
+    with SingleTickerProviderStateMixin {
+  late AnimationController _anim;
+  late Animation<double> _fadeIn;
+  late Animation<Offset> _slideUp;
+  int _minutesPer1k = 30;
+
+  @override
+  void initState() {
+    super.initState();
+    _anim = AnimationController(
+      vsync: this,
+      duration: const Duration(milliseconds: 320),
+    );
+    _fadeIn = CurvedAnimation(parent: _anim, curve: Curves.easeOut);
+    _slideUp = Tween<Offset>(
+      begin: const Offset(0, 0.06),
+      end: Offset.zero,
+    ).animate(CurvedAnimation(parent: _anim, curve: Curves.easeOut));
+    _anim.forward();
+    _loadSettings();
+  }
+
+  Future<void> _loadSettings() async {
+    try {
+      await Hive.initFlutter();
+      final box = await Hive.openBox('time_bank');
+      final v = (box.get('minutesPer1kSteps') as int?) ?? 30;
+      if (mounted) setState(() => _minutesPer1k = v);
+    } catch (_) {}
+  }
+
+  @override
+  void dispose() {
+    _anim.dispose();
+    super.dispose();
+  }
+
+  static const _blockChannel = MethodChannel('zo_app_blocker_block_screen');
+
+  /// Sends the user home and dismisses the overlay via the native service.
+  /// Native handles HOME intent, overlay removal, and dismiss-state tracking.
+  Future<void> _goHome() async {
+    try {
+      await _blockChannel.invokeMethod<void>('dismissBlockScreen');
+    } catch (e) {
+      debugPrint('_goHome dismiss error: $e');
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final appName = widget.blockCtx.appName as String? ?? 'This App';
+    final appIcon = widget.blockCtx.appIcon as Uint8List?;
+
+    return Scaffold(
+      backgroundColor: const Color(0xFFF8F9FA),
+      body: FadeTransition(
+        opacity: _fadeIn,
+        child: SlideTransition(
+          position: _slideUp,
+          child: SafeArea(
+            child: Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 32, vertical: 32),
+              child: Column(
+                children: [
+                  const Spacer(flex: 2),
+
+                  // ── App icon ──────────────────────────────────────────────
+                  Container(
+                    width: 88,
+                    height: 88,
+                    decoration: BoxDecoration(
+                      color: const Color(0xFFEEEEEE),
+                      borderRadius: BorderRadius.circular(22),
+                    ),
+                    child: appIcon != null
+                        ? ClipRRect(
+                            borderRadius: BorderRadius.circular(22),
+                            child: Image.memory(
+                              appIcon,
+                              fit: BoxFit.cover,
                             ),
+                          )
+                        : const Icon(
+                            Icons.phone_android_rounded,
+                            size: 44,
+                            color: Color(0xFF9E9E9E),
+                          ),
+                  ),
+                  const SizedBox(height: 20),
+
+                  // ── Headline ──────────────────────────────────────────────
+                  Text(
+                    appName,
+                    style: const TextStyle(
+                      fontSize: 22,
+                      fontWeight: FontWeight.w700,
+                      color: Color(0xFF1A1A1A),
+                      letterSpacing: -0.3,
                     ),
-                    const SizedBox(height: 24),
-                    Text(
-                      blockCtx.appName ?? 'Restricted App',
-                      style: const TextStyle(
-                        color: Colors.white,
-                        fontSize: 22,
-                        fontWeight: FontWeight.bold,
-                      ),
+                  ),
+                  const SizedBox(height: 8),
+                  const Text(
+                    "You've used your screen time for today",
+                    textAlign: TextAlign.center,
+                    style: TextStyle(
+                      fontSize: 15,
+                      color: Color(0xFF757575),
+                      height: 1.4,
                     ),
-                    const SizedBox(height: 8),
-                    Container(
-                      padding: const EdgeInsets.symmetric(
-                        horizontal: 14,
-                        vertical: 6,
+                  ),
+
+                  const SizedBox(height: 32),
+
+                  // ── Divider ───────────────────────────────────────────────
+                  const Divider(color: Color(0xFFE0E0E0)),
+                  const SizedBox(height: 24),
+
+                  // ── Earn more tip ─────────────────────────────────────────
+                  Row(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Container(
+                        padding: const EdgeInsets.all(10),
+                        decoration: BoxDecoration(
+                          color: const Color(0xFFE8F5E9),
+                          borderRadius: BorderRadius.circular(12),
+                        ),
+                        child: const Icon(
+                          Icons.directions_walk_rounded,
+                          color: Color(0xFF2E7D32),
+                          size: 22,
+                        ),
                       ),
-                      decoration: BoxDecoration(
-                        color: Colors.redAccent.withAlpha(30),
-                        borderRadius: BorderRadius.circular(20),
+                      const SizedBox(width: 14),
+                      Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            const Text(
+                              'Walk to earn more time',
+                              style: TextStyle(
+                                fontSize: 14,
+                                fontWeight: FontWeight.w600,
+                                color: Color(0xFF1A1A1A),
+                              ),
+                            ),
+                            const SizedBox(height: 3),
+                            Text(
+                              '1,000 steps = $_minutesPer1k min of screen time',
+                              style: const TextStyle(
+                                fontSize: 13,
+                                color: Color(0xFF757575),
+                              ),
+                            ),
+                          ],
+                        ),
                       ),
+                    ],
+                  ),
+
+                  const Spacer(flex: 3),
+
+                  // ── Go home button ────────────────────────────────────────
+                  // Full-width, neutral — matches Android system dialog style.
+                  SizedBox(
+                    width: double.infinity,
+                    child: FilledButton(
+                      style: FilledButton.styleFrom(
+                        backgroundColor: const Color(0xFF1A1A1A),
+                        foregroundColor: Colors.white,
+                        padding: const EdgeInsets.symmetric(vertical: 16),
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(14),
+                        ),
+                        elevation: 0,
+                      ),
+                      onPressed: _goHome,
                       child: const Text(
-                        'Screen Time Limit Reached',
+                        'Go Back',
                         style: TextStyle(
-                          color: Colors.redAccent,
-                          fontSize: 12,
-                          fontWeight: FontWeight.w700,
+                          fontSize: 16,
+                          fontWeight: FontWeight.w600,
+                          letterSpacing: 0.2,
                         ),
                       ),
                     ),
-                    const SizedBox(height: 28),
-                    const Text(
-                      'Walk to Earn Access',
-                      style: TextStyle(
-                        color: Colors.white70,
-                        fontSize: 16,
-                        fontWeight: FontWeight.w600,
-                      ),
-                    ),
-                    const SizedBox(height: 8),
-                    const Text(
-                      '1,000 steps = 30 minutes of screen time.\nWalk around with your phone to earn more access!',
-                      textAlign: TextAlign.center,
-                      style: TextStyle(
-                        color: Color(0xFF94A3B8),
-                        fontSize: 14,
-                        height: 1.5,
-                      ),
-                    ),
-                    const SizedBox(height: 40),
-                    SizedBox(
-                      width: double.infinity,
-                      child: ElevatedButton.icon(
-                        style: ElevatedButton.styleFrom(
-                          backgroundColor: const Color(0xFF38BDF8),
-                          foregroundColor: const Color(0xFF0F172A),
-                          padding: const EdgeInsets.symmetric(vertical: 14),
-                          shape: RoundedRectangleBorder(
-                            borderRadius: BorderRadius.circular(14),
-                          ),
-                          elevation: 0,
-                        ),
-                        onPressed: blockCtx.onDismiss,
-                        icon: const Icon(Icons.arrow_back_rounded),
-                        label: const Text(
-                          'Close App',
-                          style: TextStyle(
-                            fontSize: 16,
-                            fontWeight: FontWeight.bold,
-                          ),
-                        ),
-                      ),
-                    ),
-                  ],
-                ),
+                  ),
+                  const SizedBox(height: 16),
+                ],
               ),
             ),
           ),
         ),
-      );
-    },
-  );
+      ),
+    );
+  }
 }

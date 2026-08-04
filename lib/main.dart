@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:typed_data';
 
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
@@ -70,7 +71,6 @@ class _FravoDashboardState extends State<FravoDashboard>
   final _healthService = HealthService.instance;
   final _blockerService = BlockerService.instance;
 
-  bool _syncing = false;
   String? _statusMessage;
 
   /// Periodic timer that refreshes usage from the native layer every 2 min.
@@ -99,26 +99,39 @@ class _FravoDashboardState extends State<FravoDashboard>
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
     if (state == AppLifecycleState.resumed) {
-      _pullUsageAndRefresh();
+      // Restart the polling timer (was cancelled on pause).
+      _startUsageTimer();
+      // Catch any midnight crossing that happened while backgrounded.
+      _refresh();
+    } else if (state == AppLifecycleState.paused ||
+               state == AppLifecycleState.detached) {
+      // Stop the periodic timer — no need to poll while invisible.
+      _usageTimer?.cancel();
+      _usageTimer = null;
     }
   }
 
   Future<void> _pullUsageAndRefresh() async {
+    // 1. Refresh steps
     final steps = await _healthService.fetchTodaySteps();
     if (steps > 0) {
       await _timeBank.updateSteps(steps);
     }
-    await _blockerService.syncUsageFromNative();
+
+    // 2. Evaluate block state — this syncs native usage internally first,
+    //    then decides whether to block or update the native trip-wire limit.
     await _blockerService.evaluateBlockState();
+
     if (mounted) setState(() {});
   }
 
+
   void _startUsageTimer() {
+    // Guard: don't create a second timer if one is already running.
+    if (_usageTimer != null && _usageTimer!.isActive) return;
     _healthService.startAutoHealthSync();
     _usageTimer = Timer.periodic(const Duration(seconds: 30), (_) {
-      if (WidgetsBinding.instance.lifecycleState == AppLifecycleState.resumed) {
-        _pullUsageAndRefresh();
-      }
+      _pullUsageAndRefresh();
     });
   }
 
@@ -127,56 +140,6 @@ class _FravoDashboardState extends State<FravoDashboard>
     await _pullUsageAndRefresh();
   }
 
-  Future<void> _syncWorkouts() async {
-    setState(() {
-      _syncing = true;
-      _statusMessage = null;
-    });
-
-    try {
-      await _blockerService.requestAllPermissions();
-
-      final granted = await _healthService.requestPermissions();
-      if (!granted) {
-        setState(() {
-          _statusMessage = 'Health Connect permissions required.';
-        });
-        return;
-      }
-
-      final steps = await _healthService.fetchTodaySteps();
-      await _timeBank.updateSteps(steps);
-
-      // After step update, sync usage and re-apply the new time limit.
-      await _blockerService.syncUsageFromNative();
-      await _blockerService.evaluateBlockState();
-
-      if (steps == 0) {
-        setState(() {
-          _statusMessage =
-              '0 steps recorded today.\n'
-              'Walk around with your phone or grant Physical Activity permission to track steps!';
-        });
-      } else {
-        setState(() {
-          _statusMessage = 'Synced ${_formatSteps(steps)} steps successfully!';
-        });
-      }
-    } catch (e) {
-      setState(() {
-        _statusMessage = 'Sync failed: $e';
-      });
-    } finally {
-      setState(() => _syncing = false);
-    }
-  }
-
-  String _formatSteps(int steps) {
-    if (steps >= 1000) {
-      return '${(steps / 1000).toStringAsFixed(1)}k';
-    }
-    return steps.toString();
-  }
 
   void _openAppSelector() {
     showModalBottomSheet(
@@ -460,117 +423,336 @@ class _FravoDashboardState extends State<FravoDashboard>
               ),
               const SizedBox(height: 28),
 
-              // ── Main Screen Time Card (Glass Hero) ────────────────────
-              GlassHeroCard(
-                child: Column(
-                  children: [
-                    Text(
-                      'SCREEN TIME LEFT',
-                      style: TextStyle(
-                        color: const Color(0xFF64748B).withValues(alpha: 0.8),
-                        fontSize: 11,
-                        fontWeight: FontWeight.bold,
-                        letterSpacing: 2,
-                      ),
-                    ),
-                    const SizedBox(height: 16),
-                    Text(
-                      '$remaining',
-                      textAlign: TextAlign.center,
-                      style: const TextStyle(
-                        color: Color(0xFF1A202C),
-                        fontSize: 72,
-                        fontWeight: FontWeight.w900,
-                        height: 1,
-                        letterSpacing: -2,
-                      ),
-                    ),
-                    const SizedBox(height: 8),
-                    const Text(
-                      'minutes',
-                      style: TextStyle(
-                        color: Color(0xFF64748B),
-                        fontSize: 15,
-                        fontWeight: FontWeight.w600,
-                      ),
-                    ),
-                    if (earned > 0) ...[
-                      const SizedBox(height: 20),
-                      // Progress bar
-                      ClipRRect(
-                        borderRadius: BorderRadius.circular(8),
-                        child: SizedBox(
-                          height: 8,
-                          child: LinearProgressIndicator(
-                            value: (used / earned).clamp(0.0, 1.0),
-                            backgroundColor: const Color(
-                              0xFF64748B,
-                            ).withValues(alpha: 0.15),
-                            valueColor: AlwaysStoppedAnimation<Color>(
-                              remaining > 0
-                                  ? const Color(0xFF10B981)
-                                  : const Color(0xFFEF4444),
+              // ── Permissions Setup Banner (for New / Unpermitted Users) ─────────────────
+              FutureBuilder<Map<String, bool>>(
+                future: _blockerService.checkPermissionsStatus(),
+                builder: (context, snapshot) {
+                  final status = snapshot.data ?? {};
+                  final usageOk = status['usageStats'] ?? false;
+                  final overlayOk = status['overlay'] ?? false;
+                  final notifOk = status['notification'] ?? false;
+
+                  if (usageOk && overlayOk && notifOk) {
+                    return const SizedBox.shrink();
+                  }
+
+                  return Padding(
+                    padding: const EdgeInsets.only(bottom: 24),
+                    child: UltraGlassContainer(
+                      borderRadius: 20,
+                      padding: const EdgeInsets.all(16),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Row(
+                            children: [
+                              Container(
+                                padding: const EdgeInsets.all(8),
+                                decoration: BoxDecoration(
+                                  color: const Color(0xFFEF4444).withValues(alpha: 0.15),
+                                  borderRadius: BorderRadius.circular(10),
+                                ),
+                                child: const Icon(
+                                  Icons.admin_panel_settings_rounded,
+                                  color: Color(0xFFEF4444),
+                                  size: 20,
+                                ),
+                              ),
+                              const SizedBox(width: 10),
+                              const Expanded(
+                                child: Text(
+                                  'PERMISSIONS REQUIRED',
+                                  style: TextStyle(
+                                    fontSize: 12,
+                                    fontWeight: FontWeight.bold,
+                                    color: Color(0xFFEF4444),
+                                    letterSpacing: 0.8,
+                                  ),
+                                ),
+                              ),
+                            ],
+                          ),
+                          const SizedBox(height: 10),
+                          const Text(
+                            'Fravo needs Usage Access, Overlay & Notification permissions to track steps and enforce app limits.',
+                            style: TextStyle(
+                              fontSize: 12,
+                              color: Color(0xFF64748B),
+                              height: 1.4,
                             ),
                           ),
+                          const SizedBox(height: 12),
+                          _PermissionStatusTile(
+                            label: 'Usage Access',
+                            isGranted: usageOk,
+                            onTap: () async {
+                              await _blockerService.requestUsageStatsPermission();
+                              if (mounted) setState(() {});
+                            },
+                          ),
+                          const SizedBox(height: 6),
+                          _PermissionStatusTile(
+                            label: 'Display Over Apps',
+                            isGranted: overlayOk,
+                            onTap: () async {
+                              await _blockerService.requestOverlayPermission();
+                              if (mounted) setState(() {});
+                            },
+                          ),
+                          const SizedBox(height: 6),
+                          _PermissionStatusTile(
+                            label: 'Notifications',
+                            isGranted: notifOk,
+                            onTap: () async {
+                              await _blockerService.requestAllPermissions();
+                              if (mounted) setState(() {});
+                            },
+                          ),
+                        ],
+                      ),
+                    ),
+                  );
+                },
+              ),
+
+              // ── Main Hero Row (Screen Time Left & Blocked Apps side-by-side) ──
+              IntrinsicHeight(
+                child: Row(
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: [
+                    // Left: Screen Time Left Card
+                    Expanded(
+                      flex: 5,
+                      child: GlassHeroCard(
+                        child: Column(
+                          mainAxisAlignment: MainAxisAlignment.center,
+                          children: [
+                            Text(
+                              'SCREEN TIME LEFT',
+                              style: TextStyle(
+                                color: const Color(0xFF64748B).withValues(alpha: 0.8),
+                                fontSize: 10,
+                                fontWeight: FontWeight.bold,
+                                letterSpacing: 1.5,
+                              ),
+                            ),
+                            const SizedBox(height: 12),
+                            Text(
+                              '$remaining',
+                              textAlign: TextAlign.center,
+                              style: const TextStyle(
+                                color: Color(0xFF1A202C),
+                                fontSize: 44,
+                                fontWeight: FontWeight.w900,
+                                height: 1,
+                                letterSpacing: -1.5,
+                              ),
+                            ),
+                            const SizedBox(height: 4),
+                            const Text(
+                              'minutes',
+                              style: TextStyle(
+                                color: Color(0xFF64748B),
+                                fontSize: 13,
+                                fontWeight: FontWeight.w600,
+                              ),
+                            ),
+                            if (earned > 0) ...[
+                              const SizedBox(height: 12),
+                              ClipRRect(
+                                borderRadius: BorderRadius.circular(8),
+                                child: SizedBox(
+                                  height: 6,
+                                  child: LinearProgressIndicator(
+                                    value: (used / earned).clamp(0.0, 1.0),
+                                    backgroundColor: const Color(
+                                      0xFF64748B,
+                                    ).withValues(alpha: 0.15),
+                                    valueColor: AlwaysStoppedAnimation<Color>(
+                                      remaining > 0
+                                          ? const Color(0xFF10B981)
+                                          : const Color(0xFFEF4444),
+                                    ),
+                                  ),
+                                ),
+                              ),
+                              const SizedBox(height: 8),
+                              Text(
+                                '$used used · $earned earned',
+                                style: const TextStyle(
+                                  color: Color(0xFF64748B),
+                                  fontSize: 11,
+                                  fontWeight: FontWeight.w600,
+                                ),
+                                textAlign: TextAlign.center,
+                              ),
+                              const SizedBox(height: 10),
+                            ],
+                            Container(
+                              padding: const EdgeInsets.symmetric(
+                                horizontal: 10,
+                                vertical: 6,
+                              ),
+                              decoration: BoxDecoration(
+                                color: remaining > 0
+                                    ? const Color(0xFF10B981).withValues(alpha: 0.12)
+                                    : const Color(0xFFEF4444).withValues(alpha: 0.12),
+                                borderRadius: BorderRadius.circular(16),
+                                border: Border.all(
+                                  color: remaining > 0
+                                      ? const Color(0xFF10B981).withValues(alpha: 0.3)
+                                      : const Color(0xFFEF4444).withValues(alpha: 0.3),
+                                  width: 1,
+                                ),
+                              ),
+                              child: Text(
+                                remaining > 0 ? 'ACTIVE' : 'BLOCKED',
+                                style: TextStyle(
+                                  color: remaining > 0
+                                      ? const Color(0xFF10B981)
+                                      : const Color(0xFFEF4444),
+                                  fontSize: 10,
+                                  fontWeight: FontWeight.bold,
+                                  letterSpacing: 0.8,
+                                ),
+                              ),
+                            ),
+                          ],
                         ),
                       ),
-                      const SizedBox(height: 12),
-                      Text(
-                        '$used used · $earned earned',
-                        style: const TextStyle(
-                          color: Color(0xFF64748B),
-                          fontSize: 12,
-                          fontWeight: FontWeight.w600,
-                        ),
-                        textAlign: TextAlign.center,
-                      ),
-                      const SizedBox(height: 14),
-                    ],
-                    // Status badge
-                    Container(
-                      padding: const EdgeInsets.symmetric(
-                        horizontal: 16,
-                        vertical: 8,
-                      ),
-                      decoration: BoxDecoration(
-                        gradient: LinearGradient(
-                          colors: remaining > 0
-                              ? [
-                                  const Color(
-                                    0xFF10B981,
-                                  ).withValues(alpha: 0.15),
-                                  const Color(
-                                    0xFF10B981,
-                                  ).withValues(alpha: 0.08),
-                                ]
-                              : [
-                                  const Color(
-                                    0xFFEF4444,
-                                  ).withValues(alpha: 0.15),
-                                  const Color(
-                                    0xFFEF4444,
-                                  ).withValues(alpha: 0.08),
+                    ),
+                    const SizedBox(width: 12),
+                    // Right: Blocked Apps Card (with app icons)
+                    Expanded(
+                      flex: 5,
+                      child: GlassHeroCard(
+                        child: InkWell(
+                          onTap: _openAppSelector,
+                          borderRadius: BorderRadius.circular(24),
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Row(
+                                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                                children: [
+                                  Container(
+                                    padding: const EdgeInsets.all(8),
+                                    decoration: BoxDecoration(
+                                      color: const Color(0xFFEF4444).withValues(alpha: 0.12),
+                                      borderRadius: BorderRadius.circular(10),
+                                    ),
+                                    child: const Icon(
+                                      Icons.block_rounded,
+                                      color: Color(0xFFEF4444),
+                                      size: 16,
+                                    ),
+                                  ),
+                                  Container(
+                                    padding: const EdgeInsets.symmetric(
+                                      horizontal: 8,
+                                      vertical: 3,
+                                    ),
+                                    decoration: BoxDecoration(
+                                      color: const Color(0xFFEF4444).withValues(alpha: 0.12),
+                                      borderRadius: BorderRadius.circular(12),
+                                    ),
+                                    child: Text(
+                                      '${blockedApps.length} Apps',
+                                      style: const TextStyle(
+                                        fontSize: 10,
+                                        fontWeight: FontWeight.bold,
+                                        color: Color(0xFFEF4444),
+                                      ),
+                                    ),
+                                  ),
                                 ],
-                        ),
-                        borderRadius: BorderRadius.circular(20),
-                        border: Border.all(
-                          color: remaining > 0
-                              ? const Color(0xFF10B981).withValues(alpha: 0.3)
-                              : const Color(0xFFEF4444).withValues(alpha: 0.3),
-                          width: 1.5,
-                        ),
-                      ),
-                      child: Text(
-                        remaining > 0
-                            ? 'ACTIVE • MINUTES REMAINING'
-                            : 'BLOCKED • WALK TO UNLOCK',
-                        style: TextStyle(
-                          color: remaining > 0
-                              ? const Color(0xFF10B981)
-                              : const Color(0xFFEF4444),
-                          fontSize: 11,
-                          fontWeight: FontWeight.bold,
-                          letterSpacing: 0.8,
+                              ),
+                              const SizedBox(height: 12),
+                              const Text(
+                                'BLOCKED APPS',
+                                style: TextStyle(
+                                  fontSize: 10,
+                                  fontWeight: FontWeight.bold,
+                                  color: Color(0xFF64748B),
+                                  letterSpacing: 1.2,
+                                ),
+                              ),
+                              const SizedBox(height: 10),
+                              if (blockedApps.isEmpty)
+                                const Expanded(
+                                  child: Center(
+                                    child: Text(
+                                      'Tap to add apps',
+                                      style: TextStyle(
+                                        fontSize: 12,
+                                        color: Color(0xFF64748B),
+                                        fontWeight: FontWeight.w500,
+                                      ),
+                                    ),
+                                  ),
+                                )
+                              else
+                                Expanded(
+                                  child: Column(
+                                    mainAxisAlignment: MainAxisAlignment.center,
+                                    children: blockedApps.take(3).map((pkg) {
+                                      final name = _timeBank.displayNameFor(pkg);
+                                      final usedMins = _timeBank.getUsedMinutesForApp(pkg);
+                                      return Padding(
+                                        padding: const EdgeInsets.only(bottom: 8),
+                                        child: Row(
+                                          children: [
+                                            _AppIconWidget(
+                                              packageName: pkg,
+                                              blockerService: _blockerService,
+                                              size: 22,
+                                            ),
+                                            const SizedBox(width: 8),
+                                            Expanded(
+                                              child: Text(
+                                                name,
+                                                style: const TextStyle(
+                                                  fontSize: 12,
+                                                  fontWeight: FontWeight.w700,
+                                                  color: Color(0xFF1A202C),
+                                                ),
+                                                maxLines: 1,
+                                                overflow: TextOverflow.ellipsis,
+                                              ),
+                                            ),
+                                            Text(
+                                              '${usedMins}m',
+                                              style: const TextStyle(
+                                                fontSize: 10,
+                                                fontWeight: FontWeight.w600,
+                                                color: Color(0xFF64748B),
+                                              ),
+                                            ),
+                                          ],
+                                        ),
+                                      );
+                                    }).toList(),
+                                  ),
+                                ),
+                              const SizedBox(height: 4),
+                              Row(
+                                mainAxisAlignment: MainAxisAlignment.end,
+                                children: [
+                                  GestureDetector(
+                                    onTap: _openAppSelector,
+                                    child: const Text(
+                                      'Manage →',
+                                      style: TextStyle(
+                                        fontSize: 10,
+                                        fontWeight: FontWeight.bold,
+                                        color: Color(0xFF4A90E2),
+                                      ),
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            ],
+                          ),
                         ),
                       ),
                     ),
@@ -580,38 +762,42 @@ class _FravoDashboardState extends State<FravoDashboard>
               const SizedBox(height: 24),
 
               // ── Metric Cards (Glass) ──────────────────────────────────
-              Row(
-                children: [
-                  Expanded(
-                    child: GlassMetricCard(
-                      value: totalSteps >= 1000
-                          ? '${(totalSteps / 1000).toStringAsFixed(1)}k'
-                          : '$totalSteps',
-                      label: 'Steps Walked',
-                      unit: 'steps',
-                      icon: Icons.directions_walk_rounded,
-                      iconColor: const Color(0xFF4A90E2),
+              IntrinsicHeight(
+                child: Row(
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: [
+                    Expanded(
+                      child: GlassMetricCard(
+                        value: totalSteps >= 1000
+                            ? '${(totalSteps / 1000).toStringAsFixed(1)}k'
+                            : '$totalSteps',
+                        label: 'Steps Walked',
+                        unit: 'steps',
+                        subtitle:
+                            '${((totalSteps * 0.762) / 1000).toStringAsFixed(2)} km today',
+                        subtitleIcon: Icons.straighten_rounded,
+                        subtitleColor: const Color(0xFF4A90E2),
+                        icon: Icons.directions_walk_rounded,
+                        iconColor: const Color(0xFF4A90E2),
+                      ),
                     ),
-                  ),
-                  const SizedBox(width: 16),
-                  Expanded(
-                    child: GlassMetricCard(
-                      value: '$earned',
-                      label: 'Earned Time',
-                      unit: 'mins',
-                      icon: Icons.timer_rounded,
-                      iconColor: const Color(0xFF10B981),
+                    const SizedBox(width: 16),
+                    Expanded(
+                      child: GlassMetricCard(
+                        value: '$earned',
+                        label: 'Earned Time',
+                        unit: 'mins',
+                        subtitle: '-${used}m used',
+                        subtitleIcon: Icons.remove_circle_outline_rounded,
+                        subtitleColor: const Color(0xFFEF4444),
+                        icon: Icons.timer_rounded,
+                        iconColor: const Color(0xFF10B981),
+                      ),
                     ),
-                  ),
-                ],
+                  ],
+                ),
               ),
 
-              // Steps-to-next-reward progress
-              const SizedBox(height: 16),
-              _StepsProgressCard(
-                totalSteps: totalSteps,
-                minutesPer1kSteps: minutesPer1kSteps,
-              ),
               const SizedBox(height: 24),
 
               if (_statusMessage != null)
@@ -639,189 +825,14 @@ class _FravoDashboardState extends State<FravoDashboard>
                   ),
                 ),
 
-              // ── Sync Button (Vibrant Glass) ───────────────────────────
-              VibrantGlassButton(
-                label: _syncing
-                    ? 'SYNCING HEALTH DATA...'
-                    : 'SYNC WORKOUTS NOW',
-                icon: Icons.sync_rounded,
-                onPressed: _syncing ? null : _syncWorkouts,
-                loading: _syncing,
-                gradientColors: const [Color(0xFF4A90E2), Color(0xFF10B981)],
-              ),
-              const SizedBox(height: 14),
-
               Text(
                 '1,000 steps = $minutesPer1kSteps min screen time • Walk to earn access',
                 textAlign: TextAlign.center,
                 style: const TextStyle(fontSize: 12, color: Color(0xFF64748B)),
               ),
 
-              const SizedBox(height: 24),
 
-              // ── Blocked Apps Card (Glass) ─────────────────────────────
-              GlassCard(
-                child: InkWell(
-                  onTap: _openAppSelector,
-                  borderRadius: BorderRadius.circular(20),
-                  child: Padding(
-                    padding: const EdgeInsets.all(20),
-                    child: Row(
-                      children: [
-                        Container(
-                          padding: const EdgeInsets.all(12),
-                          decoration: BoxDecoration(
-                            color: const Color(
-                              0xFFEF4444,
-                            ).withValues(alpha: 0.1),
-                            borderRadius: BorderRadius.circular(14),
-                            border: Border.all(
-                              color: const Color(
-                                0xFFEF4444,
-                              ).withValues(alpha: 0.3),
-                              width: 1.5,
-                            ),
-                          ),
-                          child: const Icon(
-                            Icons.block_rounded,
-                            color: Color(0xFFEF4444),
-                            size: 24,
-                          ),
-                        ),
-                        const SizedBox(width: 14),
-                        Expanded(
-                          child: Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              const Text(
-                                'BLOCKED APPS',
-                                style: TextStyle(
-                                  fontSize: 11,
-                                  fontWeight: FontWeight.bold,
-                                  color: Color(0xFF64748B),
-                                  letterSpacing: 1.2,
-                                ),
-                              ),
-                              const SizedBox(height: 6),
-                              Text(
-                                blockedApps.isEmpty
-                                    ? 'No apps selected'
-                                    : blockedApps
-                                          .map(
-                                            (p) => _timeBank.displayNameFor(p),
-                                          )
-                                          .join(', '),
-                                style: const TextStyle(
-                                  fontSize: 15,
-                                  fontWeight: FontWeight.w700,
-                                  color: Color(0xFF1A202C),
-                                ),
-                                maxLines: 2,
-                                overflow: TextOverflow.ellipsis,
-                              ),
-                            ],
-                          ),
-                        ),
-                        Container(
-                          padding: const EdgeInsets.all(8),
-                          decoration: BoxDecoration(
-                            color: const Color(
-                              0xFF64748B,
-                            ).withValues(alpha: 0.1),
-                            shape: BoxShape.circle,
-                          ),
-                          child: Badge(
-                            label: Text('${blockedApps.length}'),
-                            child: const Icon(
-                              Icons.swap_horiz_rounded,
-                              color: Color(0xFF64748B),
-                              size: 20,
-                            ),
-                          ),
-                        ),
-                      ],
-                    ),
-                  ),
-                ),
-              ),
 
-              const SizedBox(height: 24),
-
-              // ── Walking Stats Card (Glass) ────────────────────────────
-              GlassCard(
-                child: InkWell(
-                  onTap: () {
-                    Navigator.push(
-                      context,
-                      MaterialPageRoute(
-                        builder: (context) => const StatsScreen(),
-                      ),
-                    );
-                  },
-                  borderRadius: BorderRadius.circular(20),
-                  child: Padding(
-                    padding: const EdgeInsets.all(20),
-                    child: Row(
-                      children: [
-                        Container(
-                          padding: const EdgeInsets.all(14),
-                          decoration: BoxDecoration(
-                            gradient: const LinearGradient(
-                              colors: [Color(0xFF6366F1), Color(0xFF8B5CF6)],
-                              begin: Alignment.topLeft,
-                              end: Alignment.bottomRight,
-                            ),
-                            borderRadius: BorderRadius.circular(16),
-                            boxShadow: [
-                              BoxShadow(
-                                color: const Color(
-                                  0xFF6366F1,
-                                ).withValues(alpha: 0.4),
-                                blurRadius: 12,
-                                spreadRadius: 1,
-                              ),
-                            ],
-                          ),
-                          child: const Icon(
-                            Icons.analytics_rounded,
-                            color: Colors.white,
-                            size: 28,
-                          ),
-                        ),
-                        const SizedBox(width: 16),
-                        const Expanded(
-                          child: Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              Text(
-                                'Walking Analytics',
-                                style: TextStyle(
-                                  fontSize: 18,
-                                  fontWeight: FontWeight.bold,
-                                  color: Color(0xFF1A202C),
-                                ),
-                              ),
-                              SizedBox(height: 4),
-                              Text(
-                                'View detailed stats & progress charts',
-                                style: TextStyle(
-                                  fontSize: 13,
-                                  color: Color(0xFF64748B),
-                                ),
-                              ),
-                            ],
-                          ),
-                        ),
-                        const Icon(
-                          Icons.arrow_forward_ios_rounded,
-                          color: Color(0xFF64748B),
-                          size: 18,
-                        ),
-                      ],
-                    ),
-                  ),
-                ),
-              ),
             ],
           ),
         ),
@@ -830,94 +841,6 @@ class _FravoDashboardState extends State<FravoDashboard>
   }
 }
 
-// ── Steps Progress Card ───────────────────────────────────────────────────────
-
-/// Shows progress toward the next 1,000-step milestone.
-class _StepsProgressCard extends StatelessWidget {
-  final int totalSteps;
-  final int minutesPer1kSteps;
-
-  const _StepsProgressCard({
-    required this.totalSteps,
-    required this.minutesPer1kSteps,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    final completedK = totalSteps ~/ 1000;
-    final remainder = totalSteps % 1000;
-    final progress = remainder / 1000.0;
-    final stepsToNext = 1000 - remainder;
-
-    return Container(
-      padding: const EdgeInsets.all(16),
-      decoration: BoxDecoration(
-        color: Colors.white,
-        borderRadius: BorderRadius.circular(16),
-        border: Border.all(color: const Color(0xFFE2E8F0)),
-        boxShadow: [
-          BoxShadow(
-            color: Colors.black.withAlpha(8),
-            blurRadius: 8,
-            offset: const Offset(0, 2),
-          ),
-        ],
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Row(
-            children: [
-              Container(
-                padding: const EdgeInsets.all(8),
-                decoration: BoxDecoration(
-                  color: const Color(0xFF38A169).withAlpha(30),
-                  borderRadius: BorderRadius.circular(10),
-                ),
-                child: const Icon(
-                  Icons.emoji_events_rounded,
-                  color: Color(0xFF38A169),
-                  size: 20,
-                ),
-              ),
-              const SizedBox(width: 10),
-              const Text(
-                'Next Reward',
-                style: TextStyle(
-                  fontWeight: FontWeight.bold,
-                  fontSize: 14,
-                  color: Color(0xFF2D3748),
-                ),
-              ),
-              const Spacer(),
-              Text(
-                '$stepsToNext steps away',
-                style: const TextStyle(fontSize: 12, color: Color(0xFF718096)),
-              ),
-            ],
-          ),
-          const SizedBox(height: 10),
-          ClipRRect(
-            borderRadius: BorderRadius.circular(6),
-            child: LinearProgressIndicator(
-              value: progress,
-              minHeight: 8,
-              backgroundColor: const Color(0xFFE2E8F0),
-              valueColor: const AlwaysStoppedAnimation<Color>(
-                Color(0xFF38A169),
-              ),
-            ),
-          ),
-          const SizedBox(height: 6),
-          Text(
-            '$remainder / 1,000 steps  •  ${completedK}k completed  •  +$minutesPer1kSteps min reward',
-            style: const TextStyle(fontSize: 11, color: Color(0xFF718096)),
-          ),
-        ],
-      ),
-    );
-  }
-}
 
 // ── Permission Status Tile ────────────────────────────────────────────────────
 
@@ -993,6 +916,54 @@ class _PermissionStatusTile extends StatelessWidget {
           ],
         ),
       ),
+    );
+  }
+}
+
+// ── App Icon Component ───────────────────────────────────────────────────────
+
+/// Asynchronously fetches and renders native PNG app icon with fallback.
+class _AppIconWidget extends StatelessWidget {
+  final String packageName;
+  final BlockerService blockerService;
+  final double size;
+
+  const _AppIconWidget({
+    required this.packageName,
+    required this.blockerService,
+    this.size = 24,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return FutureBuilder<Uint8List?>(
+      future: blockerService.getAppIcon(packageName),
+      builder: (context, snapshot) {
+        if (snapshot.hasData && snapshot.data != null) {
+          return ClipRRect(
+            borderRadius: BorderRadius.circular(size * 0.3),
+            child: Image.memory(
+              snapshot.data!,
+              width: size,
+              height: size,
+              fit: BoxFit.cover,
+            ),
+          );
+        }
+        return Container(
+          width: size,
+          height: size,
+          decoration: BoxDecoration(
+            color: const Color(0xFFEF4444).withValues(alpha: 0.12),
+            borderRadius: BorderRadius.circular(size * 0.3),
+          ),
+          child: Icon(
+            Icons.phone_android_rounded,
+            size: size * 0.6,
+            color: const Color(0xFFEF4444),
+          ),
+        );
+      },
     );
   }
 }

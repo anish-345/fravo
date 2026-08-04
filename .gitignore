@@ -78,3 +78,13 @@ fravo.iml
 .metadata
 task.md
 pubspec.lock
+
+# Android signing — never commit these
+android/key.properties
+android/app/*.jks
+android/app/*.keystore
+
+# Build logs and temp files
+android/stacktrace*.txt
+android/build_error*.log
+tools/

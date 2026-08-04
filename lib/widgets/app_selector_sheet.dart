@@ -216,6 +216,18 @@ class _AppSelectorSheetState extends State<AppSelectorSheet> {
         } catch (_) {}
       }
 
+      final existingPackages = apps.map((a) => a.packageName).toSet();
+      for (final preset in CommonApps.presets) {
+        if (!existingPackages.contains(preset.packageName)) {
+          apps.add(
+            AppInfo(
+              appName: preset.name,
+              packageName: preset.packageName,
+            ),
+          );
+        }
+      }
+
       apps.sort(
         (a, b) => a.appName.toLowerCase().compareTo(b.appName.toLowerCase()),
       );

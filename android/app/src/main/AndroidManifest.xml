@@ -1,5 +1,6 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android"
-    xmlns:tools="http://schemas.android.com/tools">
+    xmlns:tools="http://schemas.android.com/tools"
+    package="avionti.fravo">
 
     <!-- Health Connect -->
     <uses-permission android:name="android.permission.ACTIVITY_RECOGNITION"/>
@@ -74,20 +75,6 @@
             </intent-filter>
         </receiver>
 
-        <!--
-            FravoBackgroundService — Optimized foreground service for continuous
-            monitoring with battery optimizations.
-        -->
-        <service
-            android:name=".FravoBackgroundService"
-            android:enabled="true"
-            android:exported="false"
-            android:foregroundServiceType="specialUse">
-            <property
-                android:name="android.app.PROPERTY_SPECIAL_USE_FGS_SUBTYPE"
-                android:value="Health tracking and app usage monitoring" />
-        </service>
-
         <meta-data
             android:name="flutterEmbedding"
             android:value="2" />
@@ -96,6 +83,19 @@
     <queries>
         <package android:name="com.google.android.apps.healthdata" />
         <package android:name="com.instagram.android" />
+        <package android:name="com.google.android.youtube" />
+        <package android:name="com.zhiliaoapp.musically" />
+        <package android:name="com.facebook.katana" />
+        <package android:name="com.twitter.android" />
+        <package android:name="com.snapchat.android" />
+        <package android:name="com.whatsapp" />
+        <package android:name="com.reddit.frontpage" />
+        <package android:name="com.netflix.mediaclient" />
+        <package android:name="com.android.chrome" />
+        <intent>
+            <action android:name="android.intent.action.MAIN" />
+            <category android:name="android.intent.category.LAUNCHER" />
+        </intent>
         <intent>
             <action android:name="androidx.health.ACTION_SHOW_PERMISSIONS_RATIONALE" />
         </intent>
