@@ -4,6 +4,7 @@ import android.app.Notification
 import android.app.NotificationChannel
 import android.app.NotificationManager
 import android.app.Service
+import android.graphics.BitmapFactory
 import android.app.usage.UsageEvents
 import android.app.usage.UsageStatsManager
 import android.content.BroadcastReceiver
@@ -23,6 +24,7 @@ import android.view.View
 import android.view.WindowManager
 import android.widget.LinearLayout
 import android.widget.TextView
+import androidx.core.app.NotificationCompat
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
@@ -604,10 +606,10 @@ class AppBlockerForegroundService : Service() {
 
     private fun buildNotification(title: String?, text: String?): Notification {
         val builder = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-            Notification.Builder(this, CHANNEL_ID)
+            NotificationCompat.Builder(this, CHANNEL_ID)
         } else {
             @Suppress("DEPRECATION")
-            Notification.Builder(this)
+            NotificationCompat.Builder(this)
         }
 
         val pm = packageManager
@@ -626,29 +628,33 @@ class AppBlockerForegroundService : Service() {
         // 2. Fall back to the app's launcher icon if the name is missing or invalid.
         val savedIconName = prefsManager.getNotificationConfig()["notificationIcon"]
         val finalIcon: Int = run {
-            val packageCandidates = listOfNotNull(
-                hostPackageName,
-                applicationContext.packageName,
-                packageName,
-                "com.example.zo_app_blocker"
-            ).distinct()
-
             val candidateNames = mutableListOf<String>()
             if (!savedIconName.isNullOrBlank()) candidateNames += savedIconName
-            candidateNames += "ic_notification"
+            candidateNames += listOf("notification_icon", "ic_notification", "ic_launcher")
 
-            for (candidate in candidateNames.distinct()) {
-                for (pkg in packageCandidates) {
+            try {
+                val hostRes = packageManager.getResourcesForApplication(hostPackageName)
+                for (candidate in candidateNames.distinct()) {
                     for (type in listOf("drawable", "mipmap")) {
-                        val resId = resources.getIdentifier(candidate, type, pkg)
+                        val resId = hostRes.getIdentifier(candidate, type, hostPackageName)
+                        if (resId != 0) return@run resId
+                    }
+                }
+            } catch (_: Exception) {
+                for (candidate in candidateNames.distinct()) {
+                    for (type in listOf("drawable", "mipmap")) {
+                        val resId = resources.getIdentifier(candidate, type, hostPackageName)
                         if (resId != 0) return@run resId
                     }
                 }
             }
 
-            // Fallback: app launcher icon, or Android's built-in info icon.
-            val appIcon = applicationInfo.icon
-            if (appIcon != 0) appIcon else android.R.drawable.ic_dialog_info
+            try {
+                val hostAppInfo = packageManager.getApplicationInfo(hostPackageName, 0)
+                if (hostAppInfo.icon != 0) return@run hostAppInfo.icon
+            } catch (_: Exception) {}
+
+            android.R.drawable.ic_dialog_info
         }
 
         val config = prefsManager.getBlockScreenConfig()
@@ -659,6 +665,7 @@ class AppBlockerForegroundService : Service() {
             .setContentTitle(notifTitle)
             .setContentText(notifDesc)
             .setSmallIcon(finalIcon)
+            .setLargeIcon(BitmapFactory.decodeResource(resources, finalIcon))
             .setOngoing(true)
             .build()
     }

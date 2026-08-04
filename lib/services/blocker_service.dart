@@ -40,7 +40,7 @@ class BlockerService {
       await _blocker.setNotificationConfig(
         notificationBannerTitle: 'Fravo Blocker Active',
         notificationBannerDescription: 'Monitoring screen time limits.',
-        notificationIcon: 'ic_notification',
+        notificationIcon: 'sym_def_app_icon',
       );
     } catch (e) {
       debugPrint('BlockerService.setNotificationConfig error: $e');
