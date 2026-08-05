@@ -158,6 +158,29 @@ class AppBlockerForegroundService : Service() {
         super.onDestroy()
     }
 
+    override fun onTaskRemoved(rootIntent: Intent?) {
+        super.onTaskRemoved(rootIntent)
+        try {
+            val restartServiceIntent = Intent(applicationContext, AppBlockerForegroundService::class.java).apply {
+                setPackage(packageName)
+            }
+            val restartPendingIntent = android.app.PendingIntent.getService(
+                applicationContext,
+                1,
+                restartServiceIntent,
+                android.app.PendingIntent.FLAG_ONE_SHOT or android.app.PendingIntent.FLAG_IMMUTABLE
+            )
+            val alarmManager = getSystemService(Context.ALARM_SERVICE) as android.app.AlarmManager
+            alarmManager.set(
+                android.app.AlarmManager.RTC_WAKEUP,
+                System.currentTimeMillis() + 1000,
+                restartPendingIntent
+            )
+        } catch (e: Exception) {
+            android.util.Log.e("AppBlockerService", "Failed to schedule restart on task removed: ${e.message}")
+        }
+    }
+
     override fun onBind(intent: Intent?): IBinder? = null
 
     // ── Polling control ──────────────────────────────────────────────────────
