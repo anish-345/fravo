@@ -329,6 +329,33 @@ class DatabaseHelper(context: Context) : SQLiteOpenHelper(context, DATABASE_NAME
     }
 
     /**
+     * Marks a time-limit entry as fully exhausted by setting usedSeconds = limitSeconds.
+     * Called when the Flutter budget runs out and [blockApps] fires — ensures the
+     * Accessibility Service time-limit check sees remaining = 0 and blocks immediately,
+     * even if the native per-app timer hasn't counted down to zero yet.
+     *
+     * Safe to call even if no time-limit row exists for [packageName] (no-op).
+     */
+    fun markTimeLimitExhausted(packageName: String) {
+        val db = this.writableDatabase
+        val cursor = db.query(
+            TABLE_TIME_LIMITS,
+            arrayOf(COLUMN_TL_LIMIT_SECONDS),
+            "$COLUMN_TL_PACKAGE=?", arrayOf(packageName),
+            null, null, null
+        )
+        if (!cursor.moveToFirst()) { cursor.close(); return }
+        val limitSec = cursor.getLong(0)
+        cursor.close()
+
+        val cv = ContentValues().apply {
+            put(COLUMN_TL_USED_SECONDS, limitSec)  // used == limit → remaining = 0
+            put(COLUMN_TL_LAST_RESET, todayString())
+        }
+        db.update(TABLE_TIME_LIMITS, cv, "$COLUMN_TL_PACKAGE=?", arrayOf(packageName))
+    }
+
+    /**
      * Resets today's used seconds to 0 for ALL configured time-limit apps.
      * Called at midnight.
      */

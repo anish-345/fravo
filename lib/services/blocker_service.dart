@@ -63,6 +63,47 @@ class BlockerService {
     }
   }
 
+  Future<void> requestAccessibilityPermission() async {
+    if (!Platform.isAndroid) return;
+    try {
+      await _blocker.requestAccessibilityPermission();
+    } catch (e) {
+      debugPrint('BlockerService.requestAccessibilityPermission error: $e');
+    }
+  }
+
+  /// Prompts the user with a Google Play compliant disclosure modal before
+  /// navigating to Accessibility Settings.
+  Future<void> requestAccessibilityPermissionWithDisclosure(BuildContext context) async {
+    if (!Platform.isAndroid) return;
+
+    final bool? proceed = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Accessibility Permission Needed'),
+        content: const Text(
+          'Fravo requires Accessibility Service permission to detect when restricted '
+          'apps are launched and enforce screen time limits in real-time.\n\n'
+          'Fravo does NOT collect, read, or share any personal data or screen content.',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(ctx).pop(false),
+            child: const Text('Cancel'),
+          ),
+          ElevatedButton(
+            onPressed: () => Navigator.of(ctx).pop(true),
+            child: const Text('Open Settings'),
+          ),
+        ],
+      ),
+    );
+
+    if (proceed == true) {
+      await requestAccessibilityPermission();
+    }
+  }
+
   Future<void> requestOverlayPermission() async {
     if (!Platform.isAndroid) return;
     try {
@@ -72,33 +113,36 @@ class BlockerService {
     }
   }
 
-  Future<void> requestAllPermissions() async {
+  Future<void> requestAllPermissions(BuildContext context) async {
     if (!Platform.isAndroid) return;
     try {
       await _blocker.requestNotificationPermission();
     } catch (e) {
       debugPrint('BlockerService.requestNotificationPermission error: $e');
     }
-    await requestUsageStatsPermission();
+    if (!context.mounted) return;
+    await requestAccessibilityPermissionWithDisclosure(context);
     await requestOverlayPermission();
   }
 
   Future<Map<String, bool>> checkPermissionsStatus() async {
     if (!Platform.isAndroid) {
-      return {'usageStats': false, 'overlay': false, 'notification': false};
+      return {'usageStats': false, 'accessibility': false, 'overlay': false, 'notification': false};
     }
     try {
       final usage = await _blocker.checkUsageStatsPermission();
+      final accessibility = await _blocker.checkAccessibilityPermission();
       final overlay = await _blocker.checkOverlayPermission();
       final notification = await _blocker.checkNotificationPermission();
       return {
         'usageStats': usage == 'granted',
+        'accessibility': accessibility == 'granted',
         'overlay': overlay == 'granted',
         'notification': notification == 'granted',
       };
     } catch (e) {
       debugPrint('checkPermissionsStatus error: $e');
-      return {'usageStats': false, 'overlay': false, 'notification': false};
+      return {'usageStats': false, 'accessibility': false, 'overlay': false, 'notification': false};
     }
   }
 

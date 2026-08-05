@@ -45,6 +45,22 @@ class ZoAppBlocker {
     return ZoAppBlockerPlatform.instance.requestUsageStatsPermission();
   }
 
+  /// Checks the current status of the Accessibility Service permission.
+  ///
+  /// Returns a [String] representing the status ('granted', 'denied').
+  Future<String> checkAccessibilityPermission() {
+    if (_isNotSupported) return Future.value('denied');
+    return ZoAppBlockerPlatform.instance.checkAccessibilityPermission();
+  }
+
+  /// Requests the Accessibility Service permission.
+  ///
+  /// Opens the device's Accessibility Settings page.
+  Future<void> requestAccessibilityPermission() {
+    if (_isNotSupported) return Future.value();
+    return ZoAppBlockerPlatform.instance.requestAccessibilityPermission();
+  }
+
   /// Checks the current status of the Display Over Other Apps permission.
   ///
   /// On Android, this checks if the app can draw overlays.

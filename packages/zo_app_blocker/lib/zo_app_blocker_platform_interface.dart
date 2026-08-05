@@ -24,6 +24,14 @@ abstract class ZoAppBlockerPlatform extends PlatformInterface {
     throw UnimplementedError('requestUsageStatsPermission() has not been implemented.');
   }
 
+  Future<String> checkAccessibilityPermission() {
+    throw UnimplementedError('checkAccessibilityPermission() has not been implemented.');
+  }
+
+  Future<void> requestAccessibilityPermission() {
+    throw UnimplementedError('requestAccessibilityPermission() has not been implemented.');
+  }
+
   Future<String> checkOverlayPermission() {
     throw UnimplementedError('checkOverlayPermission() has not been implemented.');
   }

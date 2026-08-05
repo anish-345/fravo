@@ -245,17 +245,17 @@ class _FravoDashboardState extends State<FravoDashboard>
                   future: _blockerService.checkPermissionsStatus(),
                   builder: (context, snapshot) {
                     final status = snapshot.data ?? {};
-                    final usageOk = status['usageStats'] ?? false;
+                    final accessOk = status['accessibility'] ?? false;
                     final overlayOk = status['overlay'] ?? false;
                     final notifOk = status['notification'] ?? false;
 
                     return Column(
                       children: [
                         _PermissionStatusTile(
-                          label: 'Usage Access',
-                          isGranted: usageOk,
+                          label: 'Accessibility Service (Required)',
+                          isGranted: accessOk,
                           onTap: () async {
-                            await _blockerService.requestUsageStatsPermission();
+                            await _blockerService.requestAccessibilityPermissionWithDisclosure(context);
                             setDialogState(() {});
                           },
                         ),
@@ -273,7 +273,7 @@ class _FravoDashboardState extends State<FravoDashboard>
                           label: 'Notifications',
                           isGranted: notifOk,
                           onTap: () async {
-                            await _blockerService.requestAllPermissions();
+                            await _blockerService.requestAllPermissions(context);
                             setDialogState(() {});
                           },
                         ),
@@ -480,7 +480,7 @@ class _FravoDashboardState extends State<FravoDashboard>
                           ),
                           const SizedBox(height: 10),
                           const Text(
-                            'Fravo needs Usage Access, Overlay & Notification permissions to track steps and enforce app limits.',
+                            'Fravo needs Accessibility Service & Overlay permissions to enforce app limits.',
                             style: TextStyle(
                               fontSize: 12,
                               color: Color(0xFF64748B),
@@ -489,11 +489,11 @@ class _FravoDashboardState extends State<FravoDashboard>
                           ),
                           const SizedBox(height: 12),
                           _PermissionStatusTile(
-                            label: 'Usage Access',
-                            isGranted: usageOk,
+                            label: 'Accessibility Service',
+                            isGranted: status['accessibility'] ?? false,
                             onTap: () async {
                               await _blockerService
-                                  .requestUsageStatsPermission();
+                                  .requestAccessibilityPermissionWithDisclosure(context);
                               if (mounted) setState(() {});
                             },
                           ),
@@ -511,7 +511,7 @@ class _FravoDashboardState extends State<FravoDashboard>
                             label: 'Notifications',
                             isGranted: notifOk,
                             onTap: () async {
-                              await _blockerService.requestAllPermissions();
+                              await _blockerService.requestAllPermissions(context);
                               if (mounted) setState(() {});
                             },
                           ),

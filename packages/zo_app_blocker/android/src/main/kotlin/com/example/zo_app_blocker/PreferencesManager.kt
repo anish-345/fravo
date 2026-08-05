@@ -116,6 +116,17 @@ class PreferencesManager(context: Context) {
     }
 
     /**
+     * Marks the time-limit record for [packageName] as fully exhausted
+     * (sets usedSeconds = limitSeconds so remaining = 0).
+     * Called by [blockApps] so the Accessibility Service time-limit branch
+     * enforces the block even before the native per-app timer counts down.
+     * Safe no-op if no time-limit row exists.
+     */
+    fun markTimeLimitExhausted(packageName: String) {
+        dbHelper.markTimeLimitExhausted(packageName)
+    }
+
+    /**
      * Resets daily usage counters for ALL time-limited apps. Called at midnight.
      */
     fun resetAllDailyUsage() {

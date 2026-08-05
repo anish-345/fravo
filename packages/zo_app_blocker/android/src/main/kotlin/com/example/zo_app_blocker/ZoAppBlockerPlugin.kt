@@ -48,6 +48,14 @@ class ZoAppBlockerPlugin : FlutterPlugin, MethodCallHandler, ActivityAware {
                 activity?.let { permissionManager?.requestUsageStatsPermission(it) }
                 result.success(null)
             }
+            "checkAccessibilityPermission" -> {
+                val granted = context != null && AppBlockerAccessibilityService.isAccessibilityPermissionGranted(context!!)
+                result.success(if (granted) "granted" else "denied")
+            }
+            "requestAccessibilityPermission" -> {
+                context?.let { AppBlockerAccessibilityService.openAccessibilitySettings(it) }
+                result.success(null)
+            }
             "checkOverlayPermission" -> {
                 result.success(permissionManager?.checkOverlayPermission() ?: "denied")
             }
@@ -92,8 +100,13 @@ class ZoAppBlockerPlugin : FlutterPlugin, MethodCallHandler, ActivityAware {
                 current.addAll(identifiers)
                 prefs.saveBlockedApps(current)
                 prefs.setBlockAll(false)
-                AppBlockerForegroundService.instance?.checkCurrentForegroundApp()
-                context?.let { AppBlockerForegroundService.start(it) }
+                // Mark each app's time-limit record as exhausted (usedSeconds = limitSeconds).
+                // This ensures the Accessibility Service time-limit branch sees remaining = 0
+                // and immediately shows the block screen when the app is opened.
+                for (pkg in identifiers) {
+                    prefs.markTimeLimitExhausted(pkg)
+                }
+                AppBlockerAccessibilityService.instance?.checkCurrentForegroundApp()
                 result.success(null)
             }
             "unblockApps" -> {
@@ -101,23 +114,18 @@ class ZoAppBlockerPlugin : FlutterPlugin, MethodCallHandler, ActivityAware {
                 val current = prefs.getBlockedApps().toMutableSet()
                 current.removeAll(identifiers.toSet())
                 prefs.saveBlockedApps(current)
-                AppBlockerForegroundService.instance?.checkCurrentForegroundApp()
-                if (!prefs.isBlockAll() && current.isEmpty()) {
-                    context?.let { AppBlockerForegroundService.stop(it) }
-                }
+                AppBlockerAccessibilityService.instance?.checkCurrentForegroundApp()
                 result.success(null)
             }
             "blockAll" -> {
                 prefs.setBlockAll(true)
-                AppBlockerForegroundService.instance?.checkCurrentForegroundApp()
-                context?.let { AppBlockerForegroundService.start(it) }
+                AppBlockerAccessibilityService.instance?.checkCurrentForegroundApp()
                 result.success(null)
             }
             "unblockAll" -> {
                 prefs.setBlockAll(false)
                 prefs.saveBlockedApps(emptySet())
-                AppBlockerForegroundService.instance?.checkCurrentForegroundApp()
-                context?.let { AppBlockerForegroundService.stop(it) }
+                AppBlockerAccessibilityService.instance?.checkCurrentForegroundApp()
                 result.success(null)
             }
             "setNotificationConfig" -> {
@@ -171,9 +179,6 @@ class ZoAppBlockerPlugin : FlutterPlugin, MethodCallHandler, ActivityAware {
 
                 val limitSeconds = dailyLimitMinutes * 60L
                 prefs.setAppTimeLimit(packageName, limitSeconds)
-
-                // Ensure the foreground service is running so it can track usage.
-                context?.let { AppBlockerForegroundService.start(it) }
                 result.success(null)
             }
 
@@ -187,12 +192,7 @@ class ZoAppBlockerPlugin : FlutterPlugin, MethodCallHandler, ActivityAware {
                 val blocked = prefs.getBlockedApps().toMutableSet()
                 if (blocked.remove(packageName)) {
                     prefs.saveBlockedApps(blocked)
-                    AppBlockerForegroundService.instance?.checkCurrentForegroundApp()
-                }
-
-                // Stop service if nothing left to track.
-                if (!prefs.isBlockAll() && blocked.isEmpty() && prefs.getTimeLimitedPackages().isEmpty()) {
-                    context?.let { AppBlockerForegroundService.stop(it) }
+                    AppBlockerAccessibilityService.instance?.checkCurrentForegroundApp()
                 }
                 result.success(null)
             }
@@ -231,7 +231,7 @@ class ZoAppBlockerPlugin : FlutterPlugin, MethodCallHandler, ActivityAware {
                     if (blocked.remove(packageName)) {
                         prefs.saveBlockedApps(blocked)
                         CoroutineScope(Dispatchers.Main).launch {
-                            AppBlockerForegroundService.instance?.checkCurrentForegroundApp()
+                            AppBlockerAccessibilityService.instance?.checkCurrentForegroundApp()
                         }
                     }
                     CoroutineScope(Dispatchers.Main).launch {

@@ -104,7 +104,7 @@ class FlutterOverlayManager(private val context: Context) {
                 }
                 "temporarySessionUnlock" -> {
                     currentBlockedPackage?.let { pkg ->
-                        AppBlockerForegroundService.instance?.temporarySessionUnlock(pkg)
+                        AppBlockerAccessibilityService.instance?.temporarySessionUnlock(pkg)
                         val launchIntent = context.packageManager.getLaunchIntentForPackage(pkg)
                         if (launchIntent != null) {
                             launchIntent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)

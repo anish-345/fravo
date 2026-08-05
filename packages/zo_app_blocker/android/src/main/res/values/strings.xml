@@ -1,3 +1,4 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
+    <string name="accessibility_service_description">Fravo uses this service to detect when restricted apps are launched and enforce screen time limits.</string>
 </resources>
