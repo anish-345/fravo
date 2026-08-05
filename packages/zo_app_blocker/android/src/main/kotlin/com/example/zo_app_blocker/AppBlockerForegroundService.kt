@@ -4,7 +4,6 @@ import android.app.Notification
 import android.app.NotificationChannel
 import android.app.NotificationManager
 import android.app.Service
-import android.graphics.BitmapFactory
 import android.app.usage.UsageEvents
 import android.app.usage.UsageStatsManager
 import android.content.BroadcastReceiver
@@ -620,58 +619,166 @@ class AppBlockerForegroundService : Service() {
         val prefsManager = PreferencesManager(this)
         val hostPackageName = applicationContext.packageName
 
-        // ── Resolve notification icon ────────────────────────────────────────
-        // 1. Try the icon name saved via setNotificationConfig (e.g. "ic_notification").
-        //    We search the host app package first, then the plugin package, and
-        //    try both drawable and mipmap resources so the notification uses the
-        //    custom launcher icon consistently.
-        // 2. Fall back to the app's launcher icon if the name is missing or invalid.
+        // ── Small icon (status bar) ──────────────────────────────────────────
+        // MUST be a flat single-colour drawable — never an adaptive icon or PNG
+        // with colour, or Android renders it blank / invisible.
+        // Priority: custom name from config → "ic_launcher" → "ic_notification" → application icon → system fallback.
         val savedIconName = prefsManager.getNotificationConfig()["notificationIcon"]
-        val finalIcon: Int = run {
-            val candidateNames = mutableListOf<String>()
-            if (!savedIconName.isNullOrBlank()) candidateNames += savedIconName
-            candidateNames += listOf("notification_icon", "ic_notification", "ic_launcher")
+        val smallIconRes: Int = run {
+            val candidates = mutableListOf<String>()
+            if (!savedIconName.isNullOrBlank()) candidates += savedIconName
+            candidates += "ic_launcher"
+            candidates += "ic_notification"
+
+            android.util.Log.d("AppBlockerService", "Looking for notification icon. Host package: $hostPackageName")
+            android.util.Log.d("AppBlockerService", "Icon candidates: $candidates")
 
             try {
                 val hostRes = packageManager.getResourcesForApplication(hostPackageName)
-                for (candidate in candidateNames.distinct()) {
-                    for (type in listOf("drawable", "mipmap")) {
-                        val resId = hostRes.getIdentifier(candidate, type, hostPackageName)
-                        if (resId != 0) return@run resId
+                for (name in candidates) {
+                    // Try drawable first
+                    var id = hostRes.getIdentifier(name, "drawable", hostPackageName)
+                    if (id != 0) {
+                        android.util.Log.d("AppBlockerService", "Found drawable: $name with id: $id")
+                        return@run id
                     }
+                    // Try mipmap as fallback (for launcher icons)
+                    id = hostRes.getIdentifier(name, "mipmap", hostPackageName)
+                    if (id != 0) {
+                        android.util.Log.d("AppBlockerService", "Found mipmap: $name with id: $id")
+                        return@run id
+                    }
+                    android.util.Log.d("AppBlockerService", "Not found: $name")
                 }
-            } catch (_: Exception) {
-                for (candidate in candidateNames.distinct()) {
-                    for (type in listOf("drawable", "mipmap")) {
-                        val resId = resources.getIdentifier(candidate, type, hostPackageName)
-                        if (resId != 0) return@run resId
+            } catch (e: Exception) {
+                android.util.Log.e("AppBlockerService", "Exception in host resource lookup: ${e.message}")
+                for (name in candidates) {
+                    var id = resources.getIdentifier(name, "drawable", hostPackageName)
+                    if (id != 0) {
+                        android.util.Log.d("AppBlockerService", "Found drawable in fallback: $name with id: $id")
+                        return@run id
+                    }
+                    id = resources.getIdentifier(name, "mipmap", hostPackageName)
+                    if (id != 0) {
+                        android.util.Log.d("AppBlockerService", "Found mipmap in fallback: $name with id: $id")
+                        return@run id
                     }
                 }
             }
-
+            
+            // Final fallback: try to get the application icon directly
             try {
-                val hostAppInfo = packageManager.getApplicationInfo(hostPackageName, 0)
-                if (hostAppInfo.icon != 0) return@run hostAppInfo.icon
-            } catch (_: Exception) {}
-
+                val appInfo = packageManager.getApplicationInfo(hostPackageName, 0)
+                val appIcon = appInfo.icon
+                if (appIcon != 0) {
+                    android.util.Log.d("AppBlockerService", "Using application icon: $appIcon")
+                    return@run appIcon
+                }
+            } catch (e: Exception) {
+                android.util.Log.e("AppBlockerService", "Exception getting application icon: ${e.message}")
+            }
+            
+            android.util.Log.w("AppBlockerService", "No custom icon found, using system default")
             android.R.drawable.ic_dialog_info
+        }
+
+        // ── Large icon (notification card) ───────────────────────────────────
+        // Try to load a specific notification icon file to avoid adaptive icon issues
+        val largeIconBitmap = try {
+            android.util.Log.d("AppBlockerService", "Generating large icon for host package: $hostPackageName")
+            
+            var largeIconRes: android.graphics.Bitmap? = null
+            
+            // Try loading notification_large_icon.png from host app first
+            try {
+                val hostRes = packageManager.getResourcesForApplication(hostPackageName)
+                val id = hostRes.getIdentifier("notification_large_icon", "drawable", hostPackageName)
+                android.util.Log.d("AppBlockerService", "Looking for notification_large_icon in host package: $id")
+                if (id != 0) {
+                    largeIconRes = android.graphics.BitmapFactory.decodeResource(hostRes, id)
+                    if (largeIconRes != null) {
+                        android.util.Log.d("AppBlockerService", "Successfully loaded notification_large_icon from host package")
+                    }
+                }
+            } catch (e: Exception) {
+                android.util.Log.e("AppBlockerService", "Failed to load notification_large_icon from host: ${e.message}")
+            }
+            
+            // If that didn't work, try from our own package
+            if (largeIconRes == null) {
+                try {
+                    val id = resources.getIdentifier("notification_large_icon", "drawable", packageName)
+                    android.util.Log.d("AppBlockerService", "Looking for notification_large_icon in our package: $id")
+                    if (id != 0) {
+                        largeIconRes = android.graphics.BitmapFactory.decodeResource(resources, id)
+                        if (largeIconRes != null) {
+                            android.util.Log.d("AppBlockerService", "Successfully loaded notification_large_icon from our package")
+                        }
+                    }
+                } catch (e: Exception) {
+                    android.util.Log.e("AppBlockerService", "Failed to load notification_large_icon from our package: ${e.message}")
+                }
+            }
+            
+            if (largeIconRes != null) {
+                android.util.Log.d("AppBlockerService", "Large icon loaded successfully, size: ${largeIconRes.width}x${largeIconRes.height}")
+                // Scale to notification size if needed
+                val targetSize = 192
+                if (largeIconRes.width != targetSize || largeIconRes.height != targetSize) {
+                    val scaledBitmap = android.graphics.Bitmap.createScaledBitmap(largeIconRes, targetSize, targetSize, true)
+                    android.util.Log.d("AppBlockerService", "Scaled icon to ${targetSize}x${targetSize}")
+                    scaledBitmap
+                } else {
+                    largeIconRes
+                }
+            } else {
+                android.util.Log.w("AppBlockerService", "Could not load custom notification icon, using fallback")
+                null
+            }
+        } catch (e: Exception) {
+            android.util.Log.e("AppBlockerService", "Failed to generate large icon: ${e.message}")
+            null
         }
 
         val config = prefsManager.getBlockScreenConfig()
         val notifTitle = title ?: (config["notificationTitle"] ?: "$appName Blocker Active")
-        val notifDesc = text ?: (config["notificationDescription"] ?: "Monitoring and blocking restricted apps.")
+        val notifDesc  = text  ?: (config["notificationDescription"] ?: "Monitoring and blocking restricted apps.")
 
-        return builder
+        android.util.Log.d("AppBlockerService", "Building notification with largeIconBitmap: ${largeIconBitmap != null}")
+        android.util.Log.d("AppBlockerService", "Small icon resource ID: $smallIconRes")
+        if (largeIconBitmap != null) {
+            android.util.Log.d("AppBlockerService", "Large icon bitmap size: ${largeIconBitmap.width}x${largeIconBitmap.height}")
+        }
+
+        val notification = builder
             .setContentTitle(notifTitle)
             .setContentText(notifDesc)
-            .setSmallIcon(finalIcon)
-            .setLargeIcon(BitmapFactory.decodeResource(resources, finalIcon))
+            .setSmallIcon(smallIconRes)
+            .apply { 
+                android.util.Log.d("AppBlockerService", "Setting large icon in builder")
+                largeIconBitmap?.let { 
+                    android.util.Log.d("AppBlockerService", "Large icon being set: ${it.width}x${it.height}")
+                    setLargeIcon(it) 
+                } ?: android.util.Log.w("AppBlockerService", "Large icon bitmap is null, not setting")
+            }
             .setOngoing(true)
             .build()
+        
+        return notification
     }
 
     private fun createNotificationChannel() {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            val manager = getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
+            
+            // Delete existing channel to force refresh with new icon
+            try {
+                manager.deleteNotificationChannel(CHANNEL_ID)
+                android.util.Log.d("AppBlockerService", "Deleted existing notification channel")
+            } catch (e: Exception) {
+                android.util.Log.d("AppBlockerService", "No existing channel to delete: ${e.message}")
+            }
+            
             val channel = NotificationChannel(
                 CHANNEL_ID,
                 "App Blocker Service",
@@ -679,8 +786,8 @@ class AppBlockerForegroundService : Service() {
             ).apply {
                 description = "Keeps the app blocker running in the background."
             }
-            val manager = getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
             manager.createNotificationChannel(channel)
+            android.util.Log.d("AppBlockerService", "Created new notification channel")
         }
     }
 }
