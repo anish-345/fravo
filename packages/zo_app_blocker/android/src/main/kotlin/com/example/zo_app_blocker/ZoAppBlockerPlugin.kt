@@ -2,6 +2,7 @@ package com.example.zo_app_blocker
 
 import android.app.Activity
 import android.content.Context
+import android.content.Intent
 import androidx.annotation.NonNull
 import io.flutter.embedding.engine.plugins.FlutterPlugin
 import io.flutter.embedding.engine.plugins.activity.ActivityAware
@@ -16,6 +17,7 @@ import kotlinx.coroutines.launch
 
 class ZoAppBlockerPlugin : FlutterPlugin, MethodCallHandler, ActivityAware {
     private lateinit var channel: MethodChannel
+    private lateinit var syncEventChannel: MethodChannel
     private var context: Context? = null
     private var activity: Activity? = null
     private var permissionManager: PermissionManager? = null
@@ -25,17 +27,40 @@ class ZoAppBlockerPlugin : FlutterPlugin, MethodCallHandler, ActivityAware {
     companion object {
         var instance: ZoAppBlockerPlugin? = null
             private set
+
+        /**
+         * Call this from the foreground/accessibility service whenever a
+         * timed app is opened, so Flutter can instantly sync steps + usage.
+         */
+        fun onAppOpened(pkg: String) {
+            instance?.syncEventChannel?.invokeMethod("onAppOpened", mapOf("package" to pkg))
+        }
+
+        /**
+         * Call this whenever the user opens Fravo itself (app resumed).
+         */
+        fun onAppResumed() {
+            instance?.syncEventChannel?.invokeMethod("onAppResumed", null)
+        }
     }
 
     override fun onAttachedToEngine(@NonNull flutterPluginBinding: FlutterPlugin.FlutterPluginBinding) {
         channel = MethodChannel(flutterPluginBinding.binaryMessenger, "zo_app_blocker")
         channel.setMethodCallHandler(this)
-        
+
+        // Event channel: native → Flutter for instant sync triggers
+        syncEventChannel = MethodChannel(flutterPluginBinding.binaryMessenger, "zo_app_blocker_sync_events")
+
         context = flutterPluginBinding.applicationContext
         permissionManager = PermissionManager(context!!)
         appResolver = AppResolver(context!!)
         prefsManager = PreferencesManager(context!!)
         instance = this
+
+        // Start the foreground service if permissions are granted.
+        if (permissionManager?.checkUsageStatsPermission() == "granted") {
+            AppBlockerForegroundService.start(context!!)
+        }
     }
 
     override fun onMethodCall(@NonNull call: MethodCall, @NonNull result: Result) {

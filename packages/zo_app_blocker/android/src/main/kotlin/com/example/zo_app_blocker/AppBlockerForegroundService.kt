@@ -261,6 +261,10 @@ class AppBlockerForegroundService : Service() {
             if (remaining <= 0L) {
                 flushActiveSessionTo(prefsManager)
                 ensureAppIsBlocked(currentPkg, prefsManager)
+                // Kill the app if it is in the foreground
+                if (currentPkg == lastPackage && currentPkg.isNotEmpty()) {
+                    killForegroundApp()
+                }
                 updateNotificationDefault(prefsManager)
                 return
             }
@@ -270,6 +274,8 @@ class AppBlockerForegroundService : Service() {
                 activeTimedPackage = currentPkg
                 sessionStartMs = System.currentTimeMillis()
                 sessionElapsedSeconds = 0L
+                // Instantly notify Flutter to sync steps + usage
+                ZoAppBlockerPlugin.onAppOpened(currentPkg)
             }
 
             val sessionElapsedSec = (System.currentTimeMillis() - sessionStartMs) / 1000L
@@ -279,6 +285,10 @@ class AppBlockerForegroundService : Service() {
             if (liveRemaining <= 0L) {
                 flushActiveSessionTo(prefsManager)
                 ensureAppIsBlocked(currentPkg, prefsManager)
+                // Kill the app if it is in the foreground
+                if (currentPkg == lastPackage && currentPkg.isNotEmpty()) {
+                    killForegroundApp()
+                }
                 updateNotificationDefault(prefsManager)
                 return
             }
@@ -300,22 +310,55 @@ class AppBlockerForegroundService : Service() {
         val time = System.currentTimeMillis()
         // Query a slightly wider window (3× poll interval) so we never miss
         // a fast app switch that happened between two polls.
-        val events = usm.queryEvents(time - POLL_INTERVAL_MS * 3, time) ?: return lastPackage
+        val events = usm.queryEvents(time - POLL_INTERVAL_MS * 3, time)
 
         var foregroundApp: String? = null
-        val event = UsageEvents.Event()
-        while (events.hasNextEvent()) {
-            events.getNextEvent(event)
-            if (event.eventType == UsageEvents.Event.ACTIVITY_RESUMED) {
-                foregroundApp = event.packageName
+        if (events != null) {
+            val event = UsageEvents.Event()
+            while (events.hasNextEvent()) {
+                events.getNextEvent(event)
+                if (event.eventType == UsageEvents.Event.ACTIVITY_RESUMED) {
+                    foregroundApp = event.packageName
+                }
             }
         }
-        return foregroundApp ?: lastPackage
+
+        if (foregroundApp != null) return foregroundApp
+
+        // Fallback: If no RESUMED event in the last few seconds, check the most recently used app.
+        // This is critical after a device reboot where an app might already be in the foreground.
+        val stats = usm.queryUsageStats(UsageStatsManager.INTERVAL_DAILY, time - 1000 * 60, time)
+        if (stats != null && stats.isNotEmpty()) {
+            var lastUsedApp: android.app.usage.UsageStats? = null
+            for (usageStats in stats) {
+                if (lastUsedApp == null || usageStats.lastTimeUsed > lastUsedApp.lastTimeUsed) {
+                    lastUsedApp = usageStats
+                }
+            }
+            return lastUsedApp?.packageName
+        }
+
+        return lastPackage
     }
 
     // -------------------------------------------------------------------------
     // Blocking Logic
     // -------------------------------------------------------------------------
+
+    fun killForegroundApp() {
+        try {
+            // Guard: never kill our own app
+            if (lastPackage.isEmpty() || lastPackage == this.packageName ||
+                lastPackage == "com.android.systemui" || isLauncherPackage(lastPackage)) {
+                return
+            }
+            val activityManager = getSystemService(Context.ACTIVITY_SERVICE) as android.app.ActivityManager
+            activityManager.killBackgroundProcesses(lastPackage)
+            android.util.Log.i("AppBlockerService", "killForegroundApp: killed $lastPackage")
+        } catch (e: Exception) {
+            android.util.Log.e("AppBlockerService", "killForegroundApp error: ${e.message}")
+        }
+    }
 
     fun checkCurrentForegroundApp() {
         if (flutterOverlayManager.isOverlayVisible || overlayView != null) {
@@ -346,6 +389,10 @@ class AppBlockerForegroundService : Service() {
             flutterOverlayManager.currentBlockedPackage == packageName) return
 
         goHome()
+        // Actively kill the blocked app if it is currently in the foreground
+        if (packageName == lastPackage && packageName.isNotEmpty()) {
+            killForegroundApp()
+        }
 
         prefsManager.logBlockEvent(packageName)
 

@@ -1,8 +1,12 @@
 package avionti.fravo
 
+import android.app.ActivityManager
+import android.app.usage.UsageStatsManager
+import android.app.usage.UsageEvents
 import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
+import android.os.Build
 import android.provider.Settings
 import android.text.TextUtils
 import android.util.Log
@@ -10,21 +14,6 @@ import android.util.Log
 /**
  * Receives BOOT_COMPLETED, LOCKED_BOOT_COMPLETED, MY_PACKAGE_REPLACED and
  * OEM QuickBoot broadcasts.
- *
- * With Option B (AccessibilityService), Android OS automatically restarts the
- * AppBlockerAccessibilityService after reboot — we don't need to manually start
- * any service here.
- *
- * What this receiver DOES do:
- * 1. Logs that boot was received (useful for debugging).
- * 2. Checks that the accessibility service is still enabled — if somehow it was
- *    disabled (e.g. after a system update), it logs a warning so the user
- *    knows to re-enable it when they next open Fravo.
- *
- * The SQLite database (zo_app_blocker.db) persists all blocked apps and time
- * limits on-disk — so the AccessibilityService reads the correct state the
- * moment it is auto-started by Android on boot, with NO dependency on Flutter
- * or the Dart engine being launched.
  */
 class BootAndRestartReceiver : BroadcastReceiver() {
 
@@ -45,8 +34,84 @@ class BootAndRestartReceiver : BroadcastReceiver() {
             "android.intent.action.QUICKBOOT_POWERON",
             "com.htc.intent.action.QUICKBOOT_POWERON" -> {
                 checkAccessibilityServiceEnabled(context)
+                startForegroundService(context)
+                killRunningBlockedApps(context)
             }
         }
+    }
+
+    /**
+     * Starts the AppBlockerForegroundService so blocking is active immediately
+     * after boot — before Flutter has a chance to run.
+     */
+    private fun startForegroundService(context: Context) {
+        try {
+            val svcIntent = Intent(context, com.example.zo_app_blocker.AppBlockerForegroundService::class.java)
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                context.startForegroundService(svcIntent)
+            } else {
+                context.startService(svcIntent)
+            }
+            Log.i(TAG, "Started AppBlockerForegroundService after boot")
+        } catch (e: Exception) {
+            Log.w(TAG, "startForegroundService error: ${e.message}")
+        }
+    }
+
+    /**
+     * Kills any blocked app that is currently running in the foreground right after boot.
+     * This ensures blocking is enforced even if the user never opens Fravo.
+     */
+    private fun killRunningBlockedApps(context: Context) {
+        try {
+            val prefsManager = com.example.zo_app_blocker.PreferencesManager(context)
+            val blockedApps = prefsManager.getBlockedApps()
+            if (blockedApps.isEmpty()) return
+
+            val topPkg = getForegroundApp(context) ?: return
+
+            if (topPkg == context.packageName || topPkg == "com.android.systemui") return
+            if (blockedApps.contains(topPkg)) {
+                val am = context.getSystemService(Context.ACTIVITY_SERVICE) as ActivityManager
+                am.killBackgroundProcesses(topPkg)
+                Log.i(TAG, "killRunningBlockedApps: killed $topPkg at boot time")
+            }
+        } catch (e: Exception) {
+            Log.w(TAG, "killRunningBlockedApps error: ${e.message}")
+        }
+    }
+
+    private fun getForegroundApp(context: Context): String? {
+        val usm = context.getSystemService(Context.USAGE_STATS_SERVICE) as UsageStatsManager
+        val time = System.currentTimeMillis()
+        val events = usm.queryEvents(time - 1000 * 60, time)
+        
+        var lastPkg: String? = null
+        if (events != null) {
+            val event = UsageEvents.Event()
+            while (events.hasNextEvent()) {
+                events.getNextEvent(event)
+                if (event.eventType == UsageEvents.Event.ACTIVITY_RESUMED) {
+                    lastPkg = event.packageName
+                }
+            }
+        }
+        
+        if (lastPkg != null) return lastPkg
+
+        // Fallback for boot time: USM events might be empty, check stats instead.
+        val stats = usm.queryUsageStats(UsageStatsManager.INTERVAL_DAILY, time - 1000 * 60, time)
+        if (stats != null && stats.isNotEmpty()) {
+            var mostRecent: android.app.usage.UsageStats? = null
+            for (usageStats in stats) {
+                if (mostRecent == null || usageStats.lastTimeUsed > mostRecent.lastTimeUsed) {
+                    mostRecent = usageStats
+                }
+            }
+            return mostRecent?.packageName
+        }
+        
+        return null
     }
 
     /**

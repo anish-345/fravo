@@ -8,7 +8,22 @@ import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
 
-class DatabaseHelper(context: Context) : SQLiteOpenHelper(context, DATABASE_NAME, null, DATABASE_VERSION) {
+import android.os.Build
+
+class DatabaseHelper(context: Context) : SQLiteOpenHelper(
+    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
+        val deviceContext = context.createDeviceProtectedStorageContext()
+        if (!deviceContext.databaseList().contains(DATABASE_NAME) && context.databaseList().contains(DATABASE_NAME)) {
+            deviceContext.moveDatabaseFrom(context, DATABASE_NAME)
+        }
+        deviceContext
+    } else {
+        context
+    },
+    DATABASE_NAME,
+    null,
+    DATABASE_VERSION
+) {
 
     companion object {
         private const val DATABASE_VERSION = 2

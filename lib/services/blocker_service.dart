@@ -72,38 +72,6 @@ class BlockerService {
     }
   }
 
-  /// Prompts the user with a Google Play compliant disclosure modal before
-  /// navigating to Accessibility Settings.
-  Future<void> requestAccessibilityPermissionWithDisclosure(BuildContext context) async {
-    if (!Platform.isAndroid) return;
-
-    final bool? proceed = await showDialog<bool>(
-      context: context,
-      builder: (ctx) => AlertDialog(
-        title: const Text('Accessibility Permission Needed'),
-        content: const Text(
-          'Fravo requires Accessibility Service permission to detect when restricted '
-          'apps are launched and enforce screen time limits in real-time.\n\n'
-          'Fravo does NOT collect, read, or share any personal data or screen content.',
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.of(ctx).pop(false),
-            child: const Text('Cancel'),
-          ),
-          ElevatedButton(
-            onPressed: () => Navigator.of(ctx).pop(true),
-            child: const Text('Open Settings'),
-          ),
-        ],
-      ),
-    );
-
-    if (proceed == true) {
-      await requestAccessibilityPermission();
-    }
-  }
-
   Future<void> requestOverlayPermission() async {
     if (!Platform.isAndroid) return;
     try {
@@ -121,8 +89,19 @@ class BlockerService {
       debugPrint('BlockerService.requestNotificationPermission error: $e');
     }
     if (!context.mounted) return;
-    await requestAccessibilityPermissionWithDisclosure(context);
+    await requestAccessibilityPermission();
     await requestOverlayPermission();
+  }
+
+  /// Returns whether the Accessibility Service permission is currently granted.
+  Future<bool> checkAccessibilityStatus() async {
+    if (!Platform.isAndroid) return false;
+    try {
+      final result = await _blocker.checkAccessibilityPermission();
+      return result == 'granted';
+    } catch (_) {
+      return false;
+    }
   }
 
   Future<Map<String, bool>> checkPermissionsStatus() async {

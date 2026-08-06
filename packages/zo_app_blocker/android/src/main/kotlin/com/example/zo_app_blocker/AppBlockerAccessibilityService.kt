@@ -185,7 +185,9 @@ class AppBlockerAccessibilityService : AccessibilityService() {
             if (activeTimedPackage != null && currentPkg != activeTimedPackage) {
                 flushActiveSessionTo(prefsManager)
             }
-            lastPackage = currentPkg
+            if (currentPkg != this.packageName) {
+                lastPackage = currentPkg
+            }
             return
         }
 
@@ -211,6 +213,10 @@ class AppBlockerAccessibilityService : AccessibilityService() {
             if (remaining <= 0L) {
                 flushActiveSessionTo(prefsManager)
                 ensureAppIsBlocked(currentPkg, prefsManager)
+                // Actively kill the app if it is in the foreground
+                if (currentPkg == lastPackage && currentPkg.isNotEmpty()) {
+                    killForegroundApp()
+                }
                 return
             }
 
@@ -221,6 +227,8 @@ class AppBlockerAccessibilityService : AccessibilityService() {
                 sessionElapsedSeconds = 0L
                 handler.removeCallbacks(timedCheckRunnable)
                 handler.postDelayed(timedCheckRunnable, 2000L)
+                // Instantly notify Flutter to sync steps + usage
+                ZoAppBlockerPlugin.onAppOpened(currentPkg)
             }
         } else {
             if (activeTimedPackage != null) {
@@ -270,6 +278,10 @@ class AppBlockerAccessibilityService : AccessibilityService() {
             flutterOverlayManager.currentBlockedPackage == packageName) return
 
         goHome()
+        // Actively kill the blocked app if it is currently in the foreground
+        if (packageName == lastPackage && packageName.isNotEmpty()) {
+            killForegroundApp()
+        }
         prefsManager.logBlockEvent(packageName)
 
         if (prefsManager.hasBlockScreenCallback()) {
@@ -293,6 +305,15 @@ class AppBlockerAccessibilityService : AccessibilityService() {
             }.start()
         } else {
             showNativeOverlay(packageName)
+        }
+    }
+
+    fun killForegroundApp() {
+        try {
+            val activityManager = getSystemService(Context.ACTIVITY_SERVICE) as android.app.ActivityManager
+            activityManager.killBackgroundProcesses(lastPackage)
+        } catch (e: Exception) {
+            Log.e(TAG, "killForegroundApp error: ${e.message}")
         }
     }
 

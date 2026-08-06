@@ -79,6 +79,14 @@ class FlutterOverlayManager(private val context: Context) {
         val callbackInfo = FlutterCallbackInformation.lookupCallbackInformation(callbackHandle)
             ?: return
 
+        // Ensure the Flutter loader is initialized before starting the engine.
+        // This is critical for background services running after a device reboot.
+        val loader = FlutterInjector.instance().flutterLoader()
+        if (!loader.initialized()) {
+            loader.startInitialization(context.applicationContext)
+        }
+        loader.ensureInitializationComplete(context.applicationContext, null)
+
         engine = FlutterEngine(context.applicationContext)
         GeneratedPluginRegister.registerGeneratedPlugins(engine!!)
 
