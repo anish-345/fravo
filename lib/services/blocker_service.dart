@@ -6,6 +6,7 @@ import 'package:hive_flutter/hive_flutter.dart';
 import 'package:zo_app_blocker/zo_app_blocker.dart';
 
 import 'time_bank.dart';
+import 'health_service.dart';
 
 class BlockerService {
   BlockerService._();
@@ -108,22 +109,40 @@ class BlockerService {
 
   Future<Map<String, bool>> checkPermissionsStatus() async {
     if (!Platform.isAndroid) {
-      return {'usageStats': false, 'accessibility': false, 'overlay': false, 'notification': false};
+      return {
+        'usageStats': false,
+        'accessibility': false,
+        'overlay': false,
+        'notification': false,
+        'activityRecognition': false,
+        'healthConnect': false,
+      };
     }
     try {
       final usage = await _blocker.checkUsageStatsPermission();
       final accessibility = await _blocker.checkAccessibilityPermission();
       final overlay = await _blocker.checkOverlayPermission();
       final notification = await _blocker.checkNotificationPermission();
+      final activity = await HealthService.instance.checkActivityRecognitionPermission();
+      final healthConnect = await HealthService.instance.checkHealthConnectPermission();
       return {
         'usageStats': usage == 'granted',
         'accessibility': accessibility == 'granted',
         'overlay': overlay == 'granted',
         'notification': notification == 'granted',
+        'activityRecognition': activity,
+        'healthConnect': healthConnect,
       };
     } catch (e) {
       debugPrint('checkPermissionsStatus error: $e');
-      return {'usageStats': false, 'accessibility': false, 'overlay': false, 'notification': false};
+      return {
+        'usageStats': false,
+        'accessibility': false,
+        'overlay': false,
+        'notification': false,
+        'activityRecognition': false,
+        'healthConnect': false,
+      };
     }
   }
 

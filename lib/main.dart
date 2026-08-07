@@ -6,12 +6,14 @@ import 'package:flutter/services.dart';
 import 'package:intl/intl.dart';
 
 import 'screens/stats_screen.dart';
+import 'screens/onboarding_screen.dart';
 import 'services/blocker_service.dart';
 import 'services/health_service.dart';
 import 'services/time_bank.dart';
 import 'widgets/accessibility_disclosure_widget.dart';
 import 'widgets/app_selector_sheet.dart';
 import 'widgets/premium_glass_system.dart';
+import 'package:hive_flutter/hive_flutter.dart';
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -24,8 +26,28 @@ Future<void> main() async {
   runApp(const FravoApp());
 }
 
-class FravoApp extends StatelessWidget {
+class FravoApp extends StatefulWidget {
   const FravoApp({super.key});
+
+  @override
+  State<FravoApp> createState() => _FravoAppState();
+}
+
+class _FravoAppState extends State<FravoApp> {
+  bool _completedOnboarding = false;
+
+  @override
+  void initState() {
+    super.initState();
+    final box = Hive.box('time_bank');
+    _completedOnboarding = box.get('completedOnboarding', defaultValue: false) as bool;
+  }
+
+  void _onOnboardingComplete() {
+    setState(() {
+      _completedOnboarding = true;
+    });
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -56,7 +78,214 @@ class FravoApp extends StatelessWidget {
         useMaterial3: true,
         fontFamily: 'System',
       ),
-      home: const FravoDashboard(),
+      home: _completedOnboarding
+          ? const FravoDashboard()
+          : OnboardingScreen(onOnboardingComplete: _onOnboardingComplete),
+    );
+  }
+}
+
+// ── Beautiful Explanatory Missing Permissions Banner ───────────────────
+
+class MissingPermissionsBanner extends StatelessWidget {
+  final Map<String, bool> permissions;
+  final VoidCallback onRefresh;
+
+  const MissingPermissionsBanner({
+    super.key,
+    required this.permissions,
+    required this.onRefresh,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final missing = <Widget>[];
+
+    if (permissions['activityRecognition'] != true) {
+      missing.add(_PermissionExplanationTile(
+        title: 'Physical Activity / Step Tracking',
+        message: '🚶‍♂️ Fravo converts your physical steps into allowed screen time. Granting this lets us access step counts to automatically reward you.',
+        icon: Icons.directions_walk_rounded,
+        iconColor: const Color(0xFF10B981),
+        onTap: () async {
+          await HealthService.instance.requestActivityRecognitionPermission();
+          onRefresh();
+        },
+      ));
+    }
+
+    if (permissions['accessibility'] != true) {
+      missing.add(_PermissionExplanationTile(
+        title: 'Accessibility Service',
+        message: '🔒 Used locally to detect when a limited app is opened so we can instantly lock it when your daily screen time is exhausted. We never collect personal data.',
+        icon: Icons.accessibility_new_rounded,
+        iconColor: const Color(0xFF8B5CF6),
+        onTap: () async {
+          await BlockerService.instance.requestAccessibilityPermission();
+          onRefresh();
+        },
+      ));
+    }
+
+    if (permissions['usageStats'] != true) {
+      missing.add(_PermissionExplanationTile(
+        title: 'Usage Stats Access',
+        message: '📊 Required to measure time spent on limited apps so we can count down your available screen budget correctly.',
+        icon: Icons.analytics_rounded,
+        iconColor: const Color(0xFF3B82F6),
+        onTap: () async {
+          await BlockerService.instance.requestUsageStatsPermission();
+          onRefresh();
+        },
+      ));
+    }
+
+    if (permissions['overlay'] != true) {
+      missing.add(_PermissionExplanationTile(
+        title: 'Display Over Other Apps (Overlay)',
+        message: '💡 Displays our lock overlay screen over restricted apps when your time runs out, preventing further access.',
+        icon: Icons.layers_rounded,
+        iconColor: const Color(0xFFF59E0B),
+        onTap: () async {
+          await BlockerService.instance.requestOverlayPermission();
+          onRefresh();
+        },
+      ));
+    }
+
+    if (permissions['notification'] != true) {
+      missing.add(_PermissionExplanationTile(
+        title: 'Notifications',
+        message: '🔔 Shows your live remaining minutes inside a status bar notification so you always know how much budget you have left.',
+        icon: Icons.notifications_active_rounded,
+        iconColor: const Color(0xFFEF4444),
+        onTap: () async {
+          await BlockerService.instance.requestAllPermissions(context);
+          onRefresh();
+        },
+      ));
+    }
+
+    if (missing.isEmpty) return const SizedBox.shrink();
+
+    return UltraGlassContainer(
+      borderRadius: 24,
+      padding: const EdgeInsets.all(20),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Container(
+                padding: const EdgeInsets.all(8),
+                decoration: BoxDecoration(
+                  color: const Color(0xFFEF4444).withOpacity(0.12),
+                  shape: BoxShape.circle,
+                ),
+                child: const Icon(Icons.shield_outlined, color: Color(0xFFEF4444), size: 22),
+              ),
+              const SizedBox(width: 12),
+              const Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      'Action Required',
+                      style: TextStyle(
+                        fontSize: 16,
+                        fontWeight: FontWeight.bold,
+                        color: Color(0xFF1F2937),
+                      ),
+                    ),
+                    Text(
+                      'Please grant permissions to enable blocking and step tracking',
+                      style: TextStyle(fontSize: 11, color: Color(0xFF6B7280)),
+                    ),
+                  ],
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 16),
+          ...missing.expand((tile) => [tile, const SizedBox(height: 12)]).toList()..removeLast(),
+        ],
+      ),
+    );
+  }
+}
+
+class _PermissionExplanationTile extends StatelessWidget {
+  final String title;
+  final String message;
+  final IconData icon;
+  final Color iconColor;
+  final VoidCallback onTap;
+
+  const _PermissionExplanationTile({
+    required this.title,
+    required this.message,
+    required this.icon,
+    required this.iconColor,
+    required this.onTap,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: const Color(0xFFE5E7EB)),
+      ),
+      padding: const EdgeInsets.all(14),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Icon(icon, color: iconColor, size: 20),
+              const SizedBox(width: 8),
+              Expanded(
+                child: Text(
+                  title,
+                  style: const TextStyle(
+                    fontSize: 14,
+                    fontWeight: FontWeight.bold,
+                    color: Color(0xFF1F2937),
+                  ),
+                ),
+              ),
+              ElevatedButton(
+                onPressed: onTap,
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: iconColor,
+                  foregroundColor: Colors.white,
+                  elevation: 0,
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(8),
+                  ),
+                  padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                  minimumSize: Size.zero,
+                  tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                ),
+                child: const Text(
+                  'Grant',
+                  style: TextStyle(fontSize: 11, fontWeight: FontWeight.bold),
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 10),
+          Text(
+            message,
+            style: const TextStyle(
+              fontSize: 12,
+              color: Color(0xFF4B5563),
+              height: 1.4,
+            ),
+          ),
+        ],
+      ),
     );
   }
 }
@@ -118,6 +347,16 @@ class _FravoDashboardState extends State<FravoDashboard>
     }
   }
 
+  Future<void> _checkPermissions() async {
+    final status = await _blockerService.checkPermissionsStatus();
+    if (mounted) {
+      setState(() {
+        _permissionsCache = status;
+        _permissionsChecked = true;
+      });
+    }
+  }
+
   Future<void> _pullUsageAndRefresh() async {
     // 1. Refresh steps
     final steps = await _healthService.fetchTodaySteps();
@@ -136,12 +375,14 @@ class _FravoDashboardState extends State<FravoDashboard>
     if (_usageTimer != null && _usageTimer!.isActive) return;
     _healthService.startAutoHealthSync();
     _usageTimer = Timer.periodic(const Duration(seconds: 5), (_) {
+      _checkPermissions();
       _pullUsageAndRefresh();
     });
   }
 
   Future<void> _refresh() async {
     await _timeBank.resetDailyIfNeeded();
+    await _checkPermissions();
     await _pullUsageAndRefresh();
   }
 
@@ -255,9 +496,19 @@ class _FravoDashboardState extends State<FravoDashboard>
                     final accessOk = status['accessibility'] ?? false;
                     final overlayOk = status['overlay'] ?? false;
                     final notifOk = status['notification'] ?? false;
+                    final activityOk = status['activityRecognition'] ?? false;
 
                     return Column(
                       children: [
+                        _PermissionStatusTile(
+                          label: 'Physical Activity / Step Tracking',
+                          isGranted: activityOk,
+                          onTap: () async {
+                            await _healthService.requestActivityRecognitionPermission();
+                            setDialogState(() {});
+                          },
+                        ),
+                        const SizedBox(height: 6),
                         _PermissionStatusTile(
                           label: 'Accessibility Service (Required)',
                           isGranted: accessOk,
@@ -434,104 +685,14 @@ class _FravoDashboardState extends State<FravoDashboard>
               ),
               const SizedBox(height: 28),
 
-              // ── Permissions Setup Banner (for New / Unpermitted Users) ─────────────────
-              // Caches the result after first check so the banner doesn't
-              // re-render on every rebuild, which would re-show the dialog.
-              if (_permissionsChecked) ...[
-                if (!(_permissionsCache?['usageStats'] ?? false) ||
-                    !(_permissionsCache?['overlay'] ?? false) ||
-                    !(_permissionsCache?['notification'] ?? false))
-                  Padding(
-                    padding: const EdgeInsets.only(bottom: 24),
-                    child: UltraGlassContainer(
-                      borderRadius: 20,
-                      padding: const EdgeInsets.all(16),
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          const AccessibilityDisclosureWidget(),
-                          const SizedBox(height: 12),
-                          if (!(_permissionsCache?['overlay'] ?? false))
-                            _PermissionStatusTile(
-                              label: 'Overlay (Display over Apps)',
-                              isGranted: _permissionsCache?['overlay'] ?? false,
-                              onTap: () async {
-                                await _blockerService.requestOverlayPermission();
-                                _permissionsCache = await _blockerService.checkPermissionsStatus();
-                                if (mounted) setState(() {});
-                              },
-                            ),
-                          if ((_permissionsCache?['overlay'] ?? false) && !(_permissionsCache?['notification'] ?? false))
-                            const SizedBox(height: 6),
-                          if (!(_permissionsCache?['notification'] ?? false))
-                            _PermissionStatusTile(
-                              label: 'Notifications',
-                              isGranted: _permissionsCache?['notification'] ?? false,
-                              onTap: () async {
-                                await _blockerService.requestAllPermissions(context);
-                                _permissionsCache = await _blockerService.checkPermissionsStatus();
-                                if (mounted) setState(() {});
-                              },
-                            ),
-                        ],
-                      ),
-                    ),
+              // ── Beautiful Permissions Setup Banner ─────────────────
+              if (_permissionsCache != null)
+                Padding(
+                  padding: const EdgeInsets.only(bottom: 24),
+                  child: MissingPermissionsBanner(
+                    permissions: _permissionsCache!,
+                    onRefresh: _checkPermissions,
                   ),
-              ] else
-                FutureBuilder<Map<String, bool>>(
-                  future: _blockerService.checkPermissionsStatus(),
-                  builder: (context, snapshot) {
-                    if (snapshot.connectionState == ConnectionState.done &&
-                        snapshot.data != null) {
-                      _permissionsChecked = true;
-                      _permissionsCache = snapshot.data!;
-                    }
-                    if (snapshot.connectionState == ConnectionState.waiting) {
-                      return const SizedBox.shrink();
-                    }
-                    final status = snapshot.data ?? {};
-                    final usageOk = status['usageStats'] ?? false;
-                    final overlayOk = status['overlay'] ?? false;
-                    final notifOk = status['notification'] ?? false;
-                    if (usageOk && overlayOk && notifOk) {
-                      _permissionsChecked = true;
-                      return const SizedBox.shrink();
-                    }
-                    return Padding(
-                      padding: const EdgeInsets.only(bottom: 24),
-                      child: UltraGlassContainer(
-                        borderRadius: 20,
-                        padding: const EdgeInsets.all(16),
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            const AccessibilityDisclosureWidget(),
-                            const SizedBox(height: 12),
-                            if (!overlayOk)
-                              _PermissionStatusTile(
-                                label: 'Overlay (Display over Apps)',
-                                isGranted: overlayOk,
-                                onTap: () async {
-                                  await _blockerService.requestOverlayPermission();
-                                  if (mounted) setState(() {});
-                                },
-                              ),
-                            if (overlayOk && !notifOk)
-                              const SizedBox(height: 6),
-                            if (!notifOk)
-                              _PermissionStatusTile(
-                                label: 'Notifications',
-                                isGranted: notifOk,
-                                onTap: () async {
-                                  await _blockerService.requestAllPermissions(context);
-                                  if (mounted) setState(() {});
-                                },
-                              ),
-                          ],
-                        ),
-                      ),
-                    );
-                  },
                 ),
 
               // ── Main Hero Row (Screen Time Left & Blocked Apps side-by-side) ──
