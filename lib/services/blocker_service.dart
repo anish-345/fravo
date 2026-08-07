@@ -123,8 +123,10 @@ class BlockerService {
       final accessibility = await _blocker.checkAccessibilityPermission();
       final overlay = await _blocker.checkOverlayPermission();
       final notification = await _blocker.checkNotificationPermission();
-      final activity = await HealthService.instance.checkActivityRecognitionPermission();
-      final healthConnect = await HealthService.instance.checkHealthConnectPermission();
+      final activity = await HealthService.instance
+          .checkActivityRecognitionPermission();
+      final healthConnect = await HealthService.instance
+          .checkHealthConnectPermission();
       return {
         'usageStats': usage == 'granted',
         'accessibility': accessibility == 'granted',

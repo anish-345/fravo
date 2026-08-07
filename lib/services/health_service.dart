@@ -214,7 +214,8 @@ class HealthService {
 
   Future<bool> requestPermissions() async {
     final healthConnectGranted = await requestHealthConnectPermission();
-    final activityRecognitionGranted = await requestActivityRecognitionPermission();
+    final activityRecognitionGranted =
+        await requestActivityRecognitionPermission();
     return healthConnectGranted || activityRecognitionGranted;
   }
 

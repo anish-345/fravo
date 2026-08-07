@@ -1,5 +1,4 @@
 import 'dart:async';
-import 'dart:typed_data';
 
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
@@ -10,7 +9,6 @@ import 'screens/onboarding_screen.dart';
 import 'services/blocker_service.dart';
 import 'services/health_service.dart';
 import 'services/time_bank.dart';
-import 'widgets/accessibility_disclosure_widget.dart';
 import 'widgets/app_selector_sheet.dart';
 import 'widgets/premium_glass_system.dart';
 import 'package:hive_flutter/hive_flutter.dart';
@@ -40,7 +38,8 @@ class _FravoAppState extends State<FravoApp> {
   void initState() {
     super.initState();
     final box = Hive.box('time_bank');
-    _completedOnboarding = box.get('completedOnboarding', defaultValue: false) as bool;
+    _completedOnboarding =
+        box.get('completedOnboarding', defaultValue: false) as bool;
   }
 
   void _onOnboardingComplete() {
@@ -102,68 +101,83 @@ class MissingPermissionsBanner extends StatelessWidget {
     final missing = <Widget>[];
 
     if (permissions['activityRecognition'] != true) {
-      missing.add(_PermissionExplanationTile(
-        title: 'Physical Activity / Step Tracking',
-        message: '🚶‍♂️ Fravo converts your physical steps into allowed screen time. Granting this lets us access step counts to automatically reward you.',
-        icon: Icons.directions_walk_rounded,
-        iconColor: const Color(0xFF10B981),
-        onTap: () async {
-          await HealthService.instance.requestActivityRecognitionPermission();
-          onRefresh();
-        },
-      ));
+      missing.add(
+        _PermissionExplanationTile(
+          title: 'Physical Activity / Step Tracking',
+          message:
+              '🚶‍♂️ Fravo converts your physical steps into allowed screen time. Granting this lets us access step counts to automatically reward you.',
+          icon: Icons.directions_walk_rounded,
+          iconColor: const Color(0xFF10B981),
+          onTap: () async {
+            await HealthService.instance.requestActivityRecognitionPermission();
+            onRefresh();
+          },
+        ),
+      );
     }
 
     if (permissions['accessibility'] != true) {
-      missing.add(_PermissionExplanationTile(
-        title: 'Accessibility Service',
-        message: '🔒 Used locally to detect when a limited app is opened so we can instantly lock it when your daily screen time is exhausted. We never collect personal data.',
-        icon: Icons.accessibility_new_rounded,
-        iconColor: const Color(0xFF8B5CF6),
-        onTap: () async {
-          await BlockerService.instance.requestAccessibilityPermission();
-          onRefresh();
-        },
-      ));
+      missing.add(
+        _PermissionExplanationTile(
+          title: 'Accessibility Service',
+          message:
+              '🔒 Used locally to detect when a limited app is opened so we can instantly lock it when your daily screen time is exhausted. We never collect personal data.',
+          icon: Icons.accessibility_new_rounded,
+          iconColor: const Color(0xFF8B5CF6),
+          onTap: () async {
+            await BlockerService.instance.requestAccessibilityPermission();
+            onRefresh();
+          },
+        ),
+      );
     }
 
     if (permissions['usageStats'] != true) {
-      missing.add(_PermissionExplanationTile(
-        title: 'Usage Stats Access',
-        message: '📊 Required to measure time spent on limited apps so we can count down your available screen budget correctly.',
-        icon: Icons.analytics_rounded,
-        iconColor: const Color(0xFF3B82F6),
-        onTap: () async {
-          await BlockerService.instance.requestUsageStatsPermission();
-          onRefresh();
-        },
-      ));
+      missing.add(
+        _PermissionExplanationTile(
+          title: 'Usage Stats Access',
+          message:
+              '📊 Required to measure time spent on limited apps so we can count down your available screen budget correctly.',
+          icon: Icons.analytics_rounded,
+          iconColor: const Color(0xFF3B82F6),
+          onTap: () async {
+            await BlockerService.instance.requestUsageStatsPermission();
+            onRefresh();
+          },
+        ),
+      );
     }
 
     if (permissions['overlay'] != true) {
-      missing.add(_PermissionExplanationTile(
-        title: 'Display Over Other Apps (Overlay)',
-        message: '💡 Displays our lock overlay screen over restricted apps when your time runs out, preventing further access.',
-        icon: Icons.layers_rounded,
-        iconColor: const Color(0xFFF59E0B),
-        onTap: () async {
-          await BlockerService.instance.requestOverlayPermission();
-          onRefresh();
-        },
-      ));
+      missing.add(
+        _PermissionExplanationTile(
+          title: 'Display Over Other Apps (Overlay)',
+          message:
+              '💡 Displays our lock overlay screen over restricted apps when your time runs out, preventing further access.',
+          icon: Icons.layers_rounded,
+          iconColor: const Color(0xFFF59E0B),
+          onTap: () async {
+            await BlockerService.instance.requestOverlayPermission();
+            onRefresh();
+          },
+        ),
+      );
     }
 
     if (permissions['notification'] != true) {
-      missing.add(_PermissionExplanationTile(
-        title: 'Notifications',
-        message: '🔔 Shows your live remaining minutes inside a status bar notification so you always know how much budget you have left.',
-        icon: Icons.notifications_active_rounded,
-        iconColor: const Color(0xFFEF4444),
-        onTap: () async {
-          await BlockerService.instance.requestAllPermissions(context);
-          onRefresh();
-        },
-      ));
+      missing.add(
+        _PermissionExplanationTile(
+          title: 'Notifications',
+          message:
+              '🔔 Shows your live remaining minutes inside a status bar notification so you always know how much budget you have left.',
+          icon: Icons.notifications_active_rounded,
+          iconColor: const Color(0xFFEF4444),
+          onTap: () async {
+            await BlockerService.instance.requestAllPermissions(context);
+            onRefresh();
+          },
+        ),
+      );
     }
 
     if (missing.isEmpty) return const SizedBox.shrink();
@@ -182,7 +196,11 @@ class MissingPermissionsBanner extends StatelessWidget {
                   color: const Color(0xFFEF4444).withOpacity(0.12),
                   shape: BoxShape.circle,
                 ),
-                child: const Icon(Icons.shield_outlined, color: Color(0xFFEF4444), size: 22),
+                child: const Icon(
+                  Icons.shield_outlined,
+                  color: Color(0xFFEF4444),
+                  size: 22,
+                ),
               ),
               const SizedBox(width: 12),
               const Expanded(
@@ -207,7 +225,10 @@ class MissingPermissionsBanner extends StatelessWidget {
             ],
           ),
           const SizedBox(height: 16),
-          ...missing.expand((tile) => [tile, const SizedBox(height: 12)]).toList()..removeLast(),
+          ...missing
+              .expand((tile) => [tile, const SizedBox(height: 12)])
+              .toList()
+            ..removeLast(),
         ],
       ),
     );
@@ -264,7 +285,10 @@ class _PermissionExplanationTile extends StatelessWidget {
                   shape: RoundedRectangleBorder(
                     borderRadius: BorderRadius.circular(8),
                   ),
-                  padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 12,
+                    vertical: 6,
+                  ),
                   minimumSize: Size.zero,
                   tapTargetSize: MaterialTapTargetSize.shrinkWrap,
                 ),
@@ -309,15 +333,25 @@ class _FravoDashboardState extends State<FravoDashboard>
   /// Cached permission status — computed once and reused to avoid
   /// re-rendering the disclosure banner on every rebuild.
   Map<String, bool>? _permissionsCache;
-  bool _permissionsChecked = false;
 
   /// Event channel: native → Flutter for instant sync on app open.
   static const _syncChannel = MethodChannel('zo_app_blocker_sync_events');
+  StreamSubscription<dynamic>? _syncStreamSubscription;
 
   @override
   void initState() {
     super.initState();
     WidgetsBinding.instance.addObserver(this);
+
+    // Subscribe to native sync events for instant updates when apps are opened
+    _syncChannel.setMethodCallHandler((call) async {
+      debugPrint('Sync event received: ${call.method}');
+      if (call.method == 'onAppResumed' || call.method == 'onAppOpened') {
+        // Immediately sync usage when app is opened
+        await _pullUsageAndRefresh();
+      }
+    });
+
     WidgetsBinding.instance.addPostFrameCallback((_) async {
       await _refresh();
       _startUsageTimer();
@@ -328,6 +362,7 @@ class _FravoDashboardState extends State<FravoDashboard>
   void dispose() {
     WidgetsBinding.instance.removeObserver(this);
     _usageTimer?.cancel();
+    _syncStreamSubscription?.cancel();
     super.dispose();
   }
 
@@ -335,10 +370,10 @@ class _FravoDashboardState extends State<FravoDashboard>
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
     if (state == AppLifecycleState.resumed) {
+      // Immediately sync usage when app resumes (don't wait for 5s timer)
+      _pullUsageAndRefresh();
       // Restart the polling timer (was cancelled on pause).
       _startUsageTimer();
-      // Catch any midnight crossing that happened while backgrounded.
-      _refresh();
     } else if (state == AppLifecycleState.paused ||
         state == AppLifecycleState.detached) {
       // Stop the periodic timer — no need to poll while invisible.
@@ -352,7 +387,6 @@ class _FravoDashboardState extends State<FravoDashboard>
     if (mounted) {
       setState(() {
         _permissionsCache = status;
-        _permissionsChecked = true;
       });
     }
   }
@@ -504,7 +538,8 @@ class _FravoDashboardState extends State<FravoDashboard>
                           label: 'Physical Activity / Step Tracking',
                           isGranted: activityOk,
                           onTap: () async {
-                            await _healthService.requestActivityRecognitionPermission();
+                            await _healthService
+                                .requestActivityRecognitionPermission();
                             setDialogState(() {});
                           },
                         ),
@@ -513,7 +548,8 @@ class _FravoDashboardState extends State<FravoDashboard>
                           label: 'Accessibility Service (Required)',
                           isGranted: accessOk,
                           onTap: () async {
-                            await _blockerService.requestAccessibilityPermission();
+                            await _blockerService
+                                .requestAccessibilityPermission();
                             setDialogState(() {});
                           },
                         ),
@@ -531,7 +567,9 @@ class _FravoDashboardState extends State<FravoDashboard>
                           label: 'Notifications',
                           isGranted: notifOk,
                           onTap: () async {
-                            await _blockerService.requestAllPermissions(context);
+                            await _blockerService.requestAllPermissions(
+                              context,
+                            );
                             setDialogState(() {});
                           },
                         ),
