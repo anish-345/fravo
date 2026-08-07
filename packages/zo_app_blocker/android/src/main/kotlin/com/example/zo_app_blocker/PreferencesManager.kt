@@ -86,11 +86,58 @@ class PreferencesManager(context: Context) {
     }
 
     /**
+     * Helper to get the currently running active session elapsed seconds.
+     */
+    fun getActiveSessionElapsedSeconds(packageName: String): Long {
+        try {
+            // Check accessibility service
+            val accService = AppBlockerAccessibilityService.instance
+            if (accService != null && accService.activeTimedPackage == packageName && accService.sessionStartMs > 0L) {
+                return ((System.currentTimeMillis() - accService.sessionStartMs) / 1000L).coerceAtLeast(0L)
+            }
+            // Check foreground polling service
+            val fgService = AppBlockerForegroundService.instance
+            if (fgService != null && fgService.activeTimedPackage == packageName && fgService.sessionStartMs > 0L) {
+                return ((System.currentTimeMillis() - fgService.sessionStartMs) / 1000L).coerceAtLeast(0L)
+            }
+        } catch (e: Exception) {
+            // Safe fallback
+        }
+        return 0L
+    }
+
+    /**
      * Returns all configured time limits with current-day usage stats.
      * Each map contains: packageName, dailyLimitSeconds, usedSeconds, remainingSeconds.
      */
     fun getAppTimeLimits(): List<Map<String, Any>> {
         return dbHelper.getAppTimeLimits()
+    }
+
+    /**
+     * Merges SQLite static usage stats with any active in-progress timed session.
+     */
+    fun getLiveAppTimeLimits(): List<Map<String, Any>> {
+        val staticLimits = dbHelper.getAppTimeLimits()
+        return staticLimits.map { row ->
+            val pkg = row["packageName"] as? String ?: ""
+            val activeElapsed = if (pkg.isNotEmpty()) getActiveSessionElapsedSeconds(pkg) else 0L
+            if (activeElapsed > 0L) {
+                val limitSec = row["dailyLimitSeconds"] as? Long ?: 0L
+                val dbUsedSec = row["usedSeconds"] as? Long ?: 0L
+                val liveUsed = (dbUsedSec + activeElapsed).coerceAtMost(limitSec)
+                val liveRemaining = (limitSec - liveUsed).coerceAtLeast(0L)
+
+                mapOf(
+                    "packageName" to pkg,
+                    "dailyLimitSeconds" to limitSec,
+                    "usedSeconds" to liveUsed,
+                    "remainingSeconds" to liveRemaining
+                )
+            } else {
+                row
+            }
+        }
     }
 
     /**

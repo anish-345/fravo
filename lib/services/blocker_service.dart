@@ -28,6 +28,8 @@ class BlockerService {
     // Wire the daily-reset callback so the earned-minutes guard is cleared
     // whenever TimeBankService.resetDailyIfNeeded() triggers a new-day reset.
     TimeBankService.instance.setDailyResetCallback(resetLastSetEarned);
+    // Wire the blocked-apps-changed callback to clear native trip-wire record.
+    TimeBankService.instance.setBlockedAppsChangedCallback(resetLastSetEarned);
 
     if (!Platform.isAndroid) return;
     try {
@@ -46,7 +48,7 @@ class BlockerService {
     }
 
     try {
-      await evaluateBlockState();
+      await evaluateBlockState(forceRearm: true);
     } catch (e) {
       debugPrint('BlockerService.initialize evaluateBlockState error: $e');
     }
@@ -174,7 +176,7 @@ class BlockerService {
   ///   remaining time and counts down naturally without being reset every 30 s.
   ///   After each call the native counter resets to 0, so we also zero our
   ///   stored baseline via [TimeBankService.resetNativeBaseline].
-  Future<void> evaluateBlockState() async {
+  Future<void> evaluateBlockState({bool forceRearm = false}) async {
     if (!Platform.isAndroid) return;
     if (_isEvaluating) {
       debugPrint('BlockerService: skipped — already evaluating.');
@@ -244,7 +246,7 @@ class BlockerService {
           debugPrint('unblockAll error: $e');
         }
 
-        // Update native trip-wire ONLY when earned budget changes.
+        // Update native trip-wire ONLY when earned budget changes or forced (e.g. at startup/app changes).
         // This prevents resetting the OS countdown timer every 30 s cycle.
         //
         // The trip-wire is set to (earned - used) at this exact moment so
@@ -253,7 +255,7 @@ class BlockerService {
         if (shouldArmNativeLimit(
           earnedMinutes: earned,
           lastSetEarnedMinutes: _lastSetEarnedMinutes,
-          forceRearm: true,
+          forceRearm: forceRearm,
         )) {
           // Snapshot used NOW so the timer starts from the correct remaining
           // value at this exact moment (not a stale value from a prior cycle).
