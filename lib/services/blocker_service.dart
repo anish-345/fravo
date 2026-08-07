@@ -6,6 +6,7 @@ import 'package:hive_flutter/hive_flutter.dart';
 import 'package:zo_app_blocker/zo_app_blocker.dart';
 
 import 'time_bank.dart';
+import 'health_service.dart';
 
 class BlockerService {
   BlockerService._();
@@ -28,6 +29,8 @@ class BlockerService {
     // Wire the daily-reset callback so the earned-minutes guard is cleared
     // whenever TimeBankService.resetDailyIfNeeded() triggers a new-day reset.
     TimeBankService.instance.setDailyResetCallback(resetLastSetEarned);
+    // Wire the blocked-apps-changed callback to clear native trip-wire record.
+    TimeBankService.instance.setBlockedAppsChangedCallback(resetLastSetEarned);
 
     if (!Platform.isAndroid) return;
     try {
@@ -46,7 +49,7 @@ class BlockerService {
     }
 
     try {
-      await evaluateBlockState();
+      await evaluateBlockState(forceRearm: true);
     } catch (e) {
       debugPrint('BlockerService.initialize evaluateBlockState error: $e');
     }
@@ -106,22 +109,42 @@ class BlockerService {
 
   Future<Map<String, bool>> checkPermissionsStatus() async {
     if (!Platform.isAndroid) {
-      return {'usageStats': false, 'accessibility': false, 'overlay': false, 'notification': false};
+      return {
+        'usageStats': false,
+        'accessibility': false,
+        'overlay': false,
+        'notification': false,
+        'activityRecognition': false,
+        'healthConnect': false,
+      };
     }
     try {
       final usage = await _blocker.checkUsageStatsPermission();
       final accessibility = await _blocker.checkAccessibilityPermission();
       final overlay = await _blocker.checkOverlayPermission();
       final notification = await _blocker.checkNotificationPermission();
+      final activity = await HealthService.instance
+          .checkActivityRecognitionPermission();
+      final healthConnect = await HealthService.instance
+          .checkHealthConnectPermission();
       return {
         'usageStats': usage == 'granted',
         'accessibility': accessibility == 'granted',
         'overlay': overlay == 'granted',
         'notification': notification == 'granted',
+        'activityRecognition': activity,
+        'healthConnect': healthConnect,
       };
     } catch (e) {
       debugPrint('checkPermissionsStatus error: $e');
-      return {'usageStats': false, 'accessibility': false, 'overlay': false, 'notification': false};
+      return {
+        'usageStats': false,
+        'accessibility': false,
+        'overlay': false,
+        'notification': false,
+        'activityRecognition': false,
+        'healthConnect': false,
+      };
     }
   }
 
@@ -174,7 +197,7 @@ class BlockerService {
   ///   remaining time and counts down naturally without being reset every 30 s.
   ///   After each call the native counter resets to 0, so we also zero our
   ///   stored baseline via [TimeBankService.resetNativeBaseline].
-  Future<void> evaluateBlockState() async {
+  Future<void> evaluateBlockState({bool forceRearm = false}) async {
     if (!Platform.isAndroid) return;
     if (_isEvaluating) {
       debugPrint('BlockerService: skipped — already evaluating.');
@@ -244,7 +267,7 @@ class BlockerService {
           debugPrint('unblockAll error: $e');
         }
 
-        // Update native trip-wire ONLY when earned budget changes.
+        // Update native trip-wire ONLY when earned budget changes or forced (e.g. at startup/app changes).
         // This prevents resetting the OS countdown timer every 30 s cycle.
         //
         // The trip-wire is set to (earned - used) at this exact moment so
@@ -253,7 +276,7 @@ class BlockerService {
         if (shouldArmNativeLimit(
           earnedMinutes: earned,
           lastSetEarnedMinutes: _lastSetEarnedMinutes,
-          forceRearm: true,
+          forceRearm: forceRearm,
         )) {
           // Snapshot used NOW so the timer starts from the correct remaining
           // value at this exact moment (not a stale value from a prior cycle).

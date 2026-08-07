@@ -162,33 +162,60 @@ class HealthService {
 
   // ── Permissions ───────────────────────────────────────────────────────────
 
-  Future<bool> requestPermissions() async {
-    bool healthConnectGranted = false;
+  Future<bool> checkActivityRecognitionPermission() async {
+    try {
+      final status = await Permission.activityRecognition.status;
+      return status.isGranted;
+    } catch (e) {
+      return false;
+    }
+  }
+
+  Future<bool> checkHealthConnectPermission() async {
     try {
       await _ensureConfigured();
-      healthConnectGranted = await _health.requestAuthorization(
+      final hasPermission = await _health.hasPermissions(
         _types,
         permissions: List.filled(_types.length, HealthDataAccess.READ),
       );
+      return hasPermission == true;
     } catch (e) {
-      debugPrint('Health Connect authorization error: $e');
+      return false;
     }
+  }
 
-    bool activityRecognitionGranted = false;
+  Future<bool> requestActivityRecognitionPermission() async {
     try {
       final status = await Permission.activityRecognition.request();
-      activityRecognitionGranted = status.isGranted;
-      if (activityRecognitionGranted) {
+      if (status.isGranted) {
         await initPedometerListener();
       }
+      return status.isGranted;
     } catch (e) {
-      debugPrint('Activity recognition permission error: $e');
+      return false;
     }
+  }
 
-    if (healthConnectGranted || activityRecognitionGranted) {
-      startAutoHealthSync();
+  Future<bool> requestHealthConnectPermission() async {
+    try {
+      await _ensureConfigured();
+      final healthConnectGranted = await _health.requestAuthorization(
+        _types,
+        permissions: List.filled(_types.length, HealthDataAccess.READ),
+      );
+      if (healthConnectGranted) {
+        startAutoHealthSync();
+      }
+      return healthConnectGranted;
+    } catch (e) {
+      return false;
     }
+  }
 
+  Future<bool> requestPermissions() async {
+    final healthConnectGranted = await requestHealthConnectPermission();
+    final activityRecognitionGranted =
+        await requestActivityRecognitionPermission();
     return healthConnectGranted || activityRecognitionGranted;
   }
 

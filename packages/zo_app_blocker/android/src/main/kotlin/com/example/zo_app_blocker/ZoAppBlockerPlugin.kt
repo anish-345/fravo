@@ -50,6 +50,11 @@ class ZoAppBlockerPlugin : FlutterPlugin, MethodCallHandler, ActivityAware {
 
         // Event channel: native → Flutter for instant sync triggers
         syncEventChannel = MethodChannel(flutterPluginBinding.binaryMessenger, "zo_app_blocker_sync_events")
+        syncEventChannel.setMethodCallHandler { call, _ ->
+            // The Flutter side handles events via setMethodCallHandler
+            // This handler exists to prevent "not implemented" errors
+            // The actual event handling is done by Flutter's setMethodCallHandler
+        }
 
         context = flutterPluginBinding.applicationContext
         permissionManager = PermissionManager(context!!)
@@ -224,7 +229,7 @@ class ZoAppBlockerPlugin : FlutterPlugin, MethodCallHandler, ActivityAware {
 
             "getAppTimeLimits" -> {
                 CoroutineScope(Dispatchers.IO).launch {
-                    val limits = prefs.getAppTimeLimits().map { row ->
+                    val limits = prefs.getLiveAppTimeLimits().map { row ->
                         val limitSec = (row["dailyLimitSeconds"] as? Long) ?: 0L
                         val usedSec  = (row["usedSeconds"]       as? Long) ?: 0L
                         val remSec   = (row["remainingSeconds"]   as? Long) ?: 0L
@@ -273,6 +278,7 @@ class ZoAppBlockerPlugin : FlutterPlugin, MethodCallHandler, ActivityAware {
 
     override fun onDetachedFromEngine(@NonNull binding: FlutterPlugin.FlutterPluginBinding) {
         channel.setMethodCallHandler(null)
+        syncEventChannel.setMethodCallHandler(null)
         instance = null
     }
 
