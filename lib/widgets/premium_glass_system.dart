@@ -13,7 +13,7 @@ class UltraGlassContainer extends StatelessWidget {
   final double borderWidth;
   final bool showIridescence;
   final List<Color>? customGradient;
-  
+
   const UltraGlassContainer({
     super.key,
     required this.child,
@@ -36,16 +36,16 @@ class UltraGlassContainer extends StatelessWidget {
             filter: ImageFilter.blur(sigmaX: 40, sigmaY: 40),
             child: Container(
               decoration: BoxDecoration(
-                gradient: customGradient != null 
-                  ? LinearGradient(colors: customGradient!)
-                  : LinearGradient(
-                      colors: [
-                        Colors.white.withValues(alpha: 0.05),
-                        Colors.white.withValues(alpha: 0.02),
-                      ],
-                      begin: Alignment.topLeft,
-                      end: Alignment.bottomRight,
-                    ),
+                gradient: customGradient != null
+                    ? LinearGradient(colors: customGradient!)
+                    : LinearGradient(
+                        colors: [
+                          Colors.white.withValues(alpha: 0.05),
+                          Colors.white.withValues(alpha: 0.02),
+                        ],
+                        begin: Alignment.topLeft,
+                        end: Alignment.bottomRight,
+                      ),
                 borderRadius: BorderRadius.circular(borderRadius),
                 border: Border.all(
                   color: borderColor ?? Colors.white.withValues(alpha: 0.2),
@@ -108,7 +108,7 @@ class VibrantGlassButton extends StatefulWidget {
   final IconData? icon;
   final List<Color> gradientColors;
   final bool loading;
-  
+
   const VibrantGlassButton({
     super.key,
     required this.label,
@@ -125,7 +125,7 @@ class VibrantGlassButton extends StatefulWidget {
   State<VibrantGlassButton> createState() => _VibrantGlassButtonState();
 }
 
-class _VibrantGlassButtonState extends State<VibrantGlassButton> 
+class _VibrantGlassButtonState extends State<VibrantGlassButton>
     with SingleTickerProviderStateMixin {
   late AnimationController _controller;
   bool _isPressed = false;
@@ -181,7 +181,7 @@ class _VibrantGlassButtonState extends State<VibrantGlassButton>
                 )
               else if (widget.icon != null)
                 Icon(widget.icon, color: Colors.white, size: 22),
-              if (widget.icon != null || widget.loading) 
+              if (widget.icon != null || widget.loading)
                 const SizedBox(width: 12),
               Text(
                 widget.label,
@@ -212,7 +212,7 @@ class SubtleGlassButton extends StatefulWidget {
   final String label;
   final VoidCallback? onPressed;
   final IconData? icon;
-  
+
   const SubtleGlassButton({
     super.key,
     required this.label,
@@ -247,11 +247,7 @@ class _SubtleGlassButtonState extends State<SubtleGlassButton> {
             mainAxisSize: MainAxisSize.min,
             children: [
               if (widget.icon != null) ...[
-                Icon(
-                  widget.icon, 
-                  color: const Color(0xFF2D3748), 
-                  size: 20,
-                ),
+                Icon(widget.icon, color: const Color(0xFF2D3748), size: 20),
                 const SizedBox(width: 10),
               ],
               Text(
@@ -276,7 +272,7 @@ class GlassCard extends StatelessWidget {
   final Widget child;
   final double borderRadius;
   final EdgeInsetsGeometry? padding;
-  
+
   const GlassCard({
     super.key,
     required this.child,
@@ -302,7 +298,7 @@ class GlassInputField extends StatefulWidget {
   final VoidCallback? onSuffixTap;
   final TextEditingController? controller;
   final bool obscureText;
-  
+
   const GlassInputField({
     super.key,
     this.hint,
@@ -324,19 +320,15 @@ class _GlassInputFieldState extends State<GlassInputField> {
   Widget build(BuildContext context) {
     return UltraGlassContainer(
       borderRadius: 20,
-      borderColor: _isFocused 
-        ? Colors.white.withValues(alpha: 0.3)
-        : Colors.white.withValues(alpha: 0.2),
+      borderColor: _isFocused
+          ? Colors.white.withValues(alpha: 0.3)
+          : Colors.white.withValues(alpha: 0.2),
       borderWidth: _isFocused ? 2 : 1.5,
       padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 4),
       child: Row(
         children: [
           if (widget.prefixIcon != null) ...[
-            Icon(
-              widget.prefixIcon,
-              color: const Color(0xFF64748B),
-              size: 22,
-            ),
+            Icon(widget.prefixIcon, color: const Color(0xFF64748B), size: 22),
             const SizedBox(width: 14),
           ],
           Expanded(
@@ -394,7 +386,7 @@ class PremiumGlassToggle extends StatelessWidget {
   final bool value;
   final ValueChanged<bool>? onChanged;
   final Color activeColor;
-  
+
   const PremiumGlassToggle({
     super.key,
     required this.value,
@@ -413,32 +405,31 @@ class PremiumGlassToggle extends StatelessWidget {
         height: 36,
         decoration: BoxDecoration(
           gradient: value
-            ? LinearGradient(
-                colors: [
-                  activeColor,
-                  activeColor.withValues(alpha: 0.8),
-                ],
-              )
-            : LinearGradient(
-                colors: [
-                  Colors.white.withValues(alpha: 0.08),
-                  Colors.white.withValues(alpha: 0.04),
-                ],
-              ),
+              ? LinearGradient(
+                  colors: [activeColor, activeColor.withValues(alpha: 0.8)],
+                )
+              : LinearGradient(
+                  colors: [
+                    Colors.white.withValues(alpha: 0.08),
+                    Colors.white.withValues(alpha: 0.04),
+                  ],
+                ),
           borderRadius: BorderRadius.circular(18),
           border: Border.all(
             color: value
-              ? Colors.white.withValues(alpha: 0.4)
-              : Colors.white.withValues(alpha: 0.2),
+                ? Colors.white.withValues(alpha: 0.4)
+                : Colors.white.withValues(alpha: 0.2),
             width: 1.5,
           ),
-          boxShadow: value ? [
-            BoxShadow(
-              color: activeColor.withValues(alpha: 0.3),
-              blurRadius: 16,
-              spreadRadius: 1,
-            ),
-          ] : [],
+          boxShadow: value
+              ? [
+                  BoxShadow(
+                    color: activeColor.withValues(alpha: 0.3),
+                    blurRadius: 16,
+                    spreadRadius: 1,
+                  ),
+                ]
+              : [],
         ),
         child: Padding(
           padding: const EdgeInsets.all(3),
@@ -478,7 +469,7 @@ class GlassMetricCard extends StatelessWidget {
   final String? subtitle;
   final IconData? subtitleIcon;
   final Color? subtitleColor;
-  
+
   const GlassMetricCard({
     super.key,
     required this.value,
@@ -498,13 +489,13 @@ class GlassMetricCard extends StatelessWidget {
 
     return UltraGlassContainer(
       borderRadius: 24,
-      padding: const EdgeInsets.all(20),
+      padding: const EdgeInsets.all(22),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         mainAxisSize: MainAxisSize.min,
         children: [
           Container(
-            padding: const EdgeInsets.all(12),
+            padding: const EdgeInsets.all(13),
             decoration: BoxDecoration(
               gradient: LinearGradient(
                 colors: [
@@ -518,11 +509,7 @@ class GlassMetricCard extends StatelessWidget {
                 width: 1,
               ),
             ),
-            child: Icon(
-              icon,
-              color: iconColor,
-              size: 24,
-            ),
+            child: Icon(icon, color: iconColor, size: 26),
           ),
           const SizedBox(height: 16),
           Row(
@@ -532,7 +519,7 @@ class GlassMetricCard extends StatelessWidget {
               Text(
                 value,
                 style: const TextStyle(
-                  fontSize: 36,
+                  fontSize: 38,
                   fontWeight: FontWeight.bold,
                   color: Color(0xFF1A202C),
                   height: 1,
@@ -557,7 +544,7 @@ class GlassMetricCard extends StatelessWidget {
             style: const TextStyle(
               fontSize: 13,
               fontWeight: FontWeight.w600,
-              color: Color(0xFF64748B),
+              color: Color(0xFF4B5563),
               letterSpacing: 0.2,
             ),
           ),
@@ -565,11 +552,7 @@ class GlassMetricCard extends StatelessWidget {
             const SizedBox(height: 6),
             Row(
               children: [
-                Icon(
-                  subIcon,
-                  size: 13,
-                  color: subColor,
-                ),
+                Icon(subIcon, size: 13, color: subColor),
                 const SizedBox(width: 4),
                 Text(
                   subtitle!,
@@ -594,7 +577,7 @@ class GlassIconButton extends StatefulWidget {
   final VoidCallback? onPressed;
   final Color? iconColor;
   final double size;
-  
+
   const GlassIconButton({
     super.key,
     required this.icon,
@@ -639,11 +622,8 @@ class _GlassIconButtonState extends State<GlassIconButton> {
 /// Large hero card for main content
 class GlassHeroCard extends StatelessWidget {
   final Widget child;
-  
-  const GlassHeroCard({
-    super.key,
-    required this.child,
-  });
+
+  const GlassHeroCard({super.key, required this.child});
 
   @override
   Widget build(BuildContext context) {

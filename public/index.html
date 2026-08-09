@@ -210,7 +210,7 @@
         
         <div class="content">
             <div class="meta">
-                <strong>Last updated:</strong> August 4, 2026
+                <strong>Last updated:</strong> August 8, 2026
             </div>
             
             <h2>1. Introduction</h2>
@@ -241,7 +241,7 @@
             
             <h3>2.3 Installed App Information</h3>
             <ul>
-                <li><strong>What we access:</strong> The list of installed apps on your device (QUERY_ALL_PACKAGES permission) to let you select which apps to block.</li>
+                <li><strong>What we access:</strong> The list of installed apps on your device, retrieved via Android's PackageManager and targeted package visibility queries, to let you select which apps to block.</li>
                 <li><strong>Why:</strong> To populate the app selector with apps installed on your device.</li>
                 <li><strong>How it is stored:</strong> This information is used only at the time of selection and is not stored beyond the package names you explicitly choose to block.</li>
             </ul>
@@ -251,6 +251,14 @@
                 <li><strong>What we access:</strong> Basic device information (via <code>device_info_plus</code>) to detect battery optimization settings.</li>
                 <li><strong>Why:</strong> To adapt the step-sync interval and avoid excessive background battery drain.</li>
                 <li><strong>How it is stored:</strong> Not stored. Used at runtime only.</li>
+            </ul>
+
+            <h3>2.5 App Blocking Engine</h3>
+            <ul>
+                <li><strong>Accessibility Service:</strong> Fravo uses an Android Accessibility Service (<code>AppBlockerAccessibilityService</code>) that monitors window-state changes to detect when a blocked or time-limited app comes to the foreground. When detected, it displays the block-screen overlay and can terminate the app process.</li>
+                <li><strong>Foreground Service:</strong> A special-use foreground service (<code>AppBlockerForegroundService</code>) polls Android's UsageStatsManager every 1.5 seconds (only while the screen is on) to track which app is currently in use and enforce time limits in real time.</li>
+                <li><strong>Process termination:</strong> When a blocked app is opened or its time limit is exhausted, Fravo calls <code>ActivityManager.killBackgroundProcesses()</code> to terminate the app and redirect the user to the home screen.</li>
+                <li><strong>How it is stored:</strong> Blocked app lists, time-limit records, and the block-activity log are persisted locally in SQLite. No blocking data is transmitted off-device.</li>
             </ul>
             
             <h2>3. Permissions Used</h2>
@@ -280,12 +288,12 @@
                             <td>Display the block screen overlay when a time limit is reached</td>
                         </tr>
                         <tr>
-                            <td><code>QUERY_ALL_PACKAGES</code></td>
-                            <td>List installed apps for the app selector</td>
-                        </tr>
-                        <tr>
                             <td><code>FOREGROUND_SERVICE</code></td>
                             <td>Keep the blocker running reliably in the background</td>
+                        </tr>
+                        <tr>
+                            <td><code>FOREGROUND_SERVICE_SPECIAL_USE</code></td>
+                            <td>Run a special-use foreground service for real-time app usage monitoring (Android 11+)</td>
                         </tr>
                         <tr>
                             <td><code>POST_NOTIFICATIONS</code></td>
@@ -295,14 +303,22 @@
                             <td><code>RECEIVE_BOOT_COMPLETED</code></td>
                             <td>Restart the blocker service after device reboot</td>
                         </tr>
+                        <tr>
+                            <td><code>KILL_BACKGROUND_PROCESSES</code></td>
+                            <td>Terminate blocked apps that are force-opened while the time limit is active</td>
+                        </tr>
                     </tbody>
                 </table>
             </div>
             <p>All permissions are used solely for the features described above. No permission is used to collect, sell, or share your data.</p>
+            <div class="note">
+                <strong>Note:</strong> The Accessibility Service must be manually enabled by the user in <em>Settings → Accessibility → Fravo App Blocker Engine</em>. No accessibility data — including window content, text, or screen state — is collected, transmitted, or stored. The service only receives window-state-change events to detect app switches.
+            </div>
             
             <h2>4. Data Storage and Retention</h2>
             <ul>
-                <li>All data (step counts, earned screen time, used screen time, blocked app list, reward settings) is stored <strong>locally on your device</strong> using Hive.</li>
+                <li><strong>Flutter layer (Hive):</strong> Step counts, earned screen time, used screen time, blocked app list, and reward settings are stored locally using the Hive database library.</li>
+                <li><strong>Native blocking engine (SQLite):</strong> Blocked app lists, daily time-limit records, used seconds, and the block-activity log are stored locally in a SQLite database (<code>zo_app_blocker.db</code>). This database is also used by the native Accessibility Service, so it persists and functions even when the Flutter app is not running.</li>
                 <li>Data resets automatically at <strong>midnight local time</strong> each day.</li>
                 <li>You can delete all stored data by uninstalling the app.</li>
                 <li>Fravo does not use cloud storage, remote databases, or any external data service.</li>

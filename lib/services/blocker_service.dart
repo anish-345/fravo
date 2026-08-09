@@ -66,6 +66,16 @@ class BlockerService {
     }
   }
 
+  /// Requests notification permission only (iOS-style, progressive flow).
+  Future<void> requestNotificationPermission() async {
+    if (!Platform.isAndroid) return;
+    try {
+      await _blocker.requestNotificationPermission();
+    } catch (e) {
+      debugPrint('BlockerService.requestNotificationPermission error: $e');
+    }
+  }
+
   Future<void> requestAccessibilityPermission() async {
     if (!Platform.isAndroid) return;
     try {
@@ -223,7 +233,15 @@ class BlockerService {
       );
 
       if (targets.isEmpty) {
-        debugPrint('BlockerService: no blocked apps configured — skipping.');
+        // No apps configured → clear native state too, otherwise previously
+        // blocked apps keep their exhausted time-limit rows and the native
+        // enforcer re-blocks them on launch even though they were removed.
+        debugPrint('BlockerService: no blocked apps configured — clearing native state.');
+        try {
+          await _blocker.unblockAll();
+        } catch (e) {
+          debugPrint('unblockAll error: $e');
+        }
         return;
       }
 
@@ -338,19 +356,19 @@ class BlockerService {
         'watching ${targets.length} package(s).',
       );
 
-      // Build a map of packageName → usedMinutes from the native layer.
-      final Map<String, int> currentUsage = {};
+      // Build a map of packageName → usedSeconds from the native layer.
+      final Map<String, int> currentUsageSeconds = {};
       for (final limit in limits) {
         if (targets.contains(limit.packageName)) {
-          currentUsage[limit.packageName] = limit.usedMinutes;
+          currentUsageSeconds[limit.packageName] = limit.usedSeconds;
           debugPrint(
-            '  native: ${limit.packageName} → used=${limit.usedMinutes} min',
+            '  native: ${limit.packageName} → used=${limit.usedSeconds} sec (${limit.usedMinutes} min)',
           );
         }
       }
 
       // Hand off to TimeBankService for delta computation.
-      await TimeBankService.instance.syncNativeUsageDelta(currentUsage);
+      await TimeBankService.instance.syncNativeUsageDelta(currentUsageSeconds);
     } catch (e) {
       debugPrint('BlockerService.syncUsageFromNative error: $e');
     }

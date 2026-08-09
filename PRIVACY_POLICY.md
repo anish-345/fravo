@@ -1,6 +1,6 @@
 # Privacy Policy for Fravo
 
-**Last updated: August 4, 2026**
+**Last updated: August 8, 2026**
 
 ## 1. Introduction
 
@@ -30,7 +30,7 @@ Fravo is designed to work entirely **on your device**. We do not operate servers
 
 ### 2.3 Installed App Information
 
-- **What we access:** The list of installed apps on your device (QUERY_ALL_PACKAGES permission) to let you select which apps to block.
+- **What we access:** The list of installed apps on your device, retrieved via Android's PackageManager and targeted package visibility queries, to let you select which apps to block.
 - **Why:** To populate the app selector with apps installed on your device.
 - **How it is stored:** This information is used only at the time of selection and is not stored beyond the package names you explicitly choose to block.
 
@@ -39,6 +39,15 @@ Fravo is designed to work entirely **on your device**. We do not operate servers
 - **What we access:** Basic device information (via `device_info_plus`) to detect battery optimization settings.
 - **Why:** To adapt the step-sync interval and avoid excessive background battery drain.
 - **How it is stored:** Not stored. Used at runtime only.
+
+### 2.5 App Blocking Engine
+
+- **Accessibility Service:** Fravo uses an Android Accessibility Service (`AppBlockerAccessibilityService`) that monitors window-state changes to detect when a blocked or time-limited app comes to the foreground. When detected, it displays the block-screen overlay and can terminate the app process.
+- **Foreground Service:** A special-use foreground service (`AppBlockerForegroundService`) polls Android's UsageStatsManager every 1.5 seconds (only while the screen is on) to track which app is currently in use and enforce time limits in real time.
+- **Process termination:** When a blocked app is opened or its time limit is exhausted, Fravo calls `ActivityManager.killBackgroundProcesses()` to terminate the app and redirect the user to the home screen.
+- **How it is stored:** Blocked app lists, time-limit records, and the block-activity log are persisted locally in SQLite. No blocking data is transmitted off-device.
+
+> **Note:** The Accessibility Service must be manually enabled by the user in *Settings → Accessibility → Fravo App Blocker Engine*. No accessibility data — including window content, text, or screen state — is collected, transmitted, or stored. The service only receives window-state-change events to detect app switches.
 
 ---
 
@@ -50,10 +59,11 @@ Fravo is designed to work entirely **on your device**. We do not operate servers
 | `health.READ_STEPS` | Read step data from Android Health Connect |
 | `PACKAGE_USAGE_STATS` | Read screen time for blocked apps |
 | `SYSTEM_ALERT_WINDOW` | Display the block screen overlay when a time limit is reached |
-| `QUERY_ALL_PACKAGES` | List installed apps for the app selector |
 | `FOREGROUND_SERVICE` | Keep the blocker running reliably in the background |
+| `FOREGROUND_SERVICE_SPECIAL_USE` | Run a special-use foreground service for real-time app usage monitoring (Android 11+) |
 | `POST_NOTIFICATIONS` | Show the "Fravo Active" status notification |
 | `RECEIVE_BOOT_COMPLETED` | Restart the blocker service after device reboot |
+| `KILL_BACKGROUND_PROCESSES` | Terminate blocked apps that are force-opened while the time limit is active |
 
 All permissions are used solely for the features described above. No permission is used to collect, sell, or share your data.
 
@@ -61,7 +71,8 @@ All permissions are used solely for the features described above. No permission 
 
 ## 4. Data Storage and Retention
 
-- All data (step counts, earned screen time, used screen time, blocked app list, reward settings) is stored **locally on your device** using Hive.
+- **Flutter layer (Hive):** Step counts, earned screen time, used screen time, blocked app list, and reward settings are stored locally using the Hive database library.
+- **Native blocking engine (SQLite):** Blocked app lists, daily time-limit records, used seconds, and the block-activity log are stored locally in a SQLite database (`zo_app_blocker.db`). This database is also used by the native Accessibility Service, so it persists and functions even when the Flutter app is not running.
 - Data resets automatically at **midnight local time** each day.
 - You can delete all stored data by uninstalling the app.
 - Fravo does not use cloud storage, remote databases, or any external data service.
@@ -117,7 +128,7 @@ We may update this Privacy Policy from time to time. Any changes will be reflect
 
 If you have any questions or concerns about this Privacy Policy, please contact us at:
 
-**Email:** support@fravo.app  
+**Email:** akshishpok@gmail.com  
 **App:** Fravo  
 **Package:** avionti.fravo
 

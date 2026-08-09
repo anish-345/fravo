@@ -169,6 +169,9 @@ class _AppSelectorSheetState extends State<AppSelectorSheet> {
   bool _refreshing = false;
   String _searchQuery = '';
   String? _errorMessage;
+  String _selectedCategory = 'All';
+
+  static const _categories = ['All', 'Social', 'Video', 'Games', 'Chat', 'Browser'];
 
   /// Local mutable copy of selected packages (pkg → display name).
   late Map<String, String> _selectedApps;
@@ -251,12 +254,25 @@ class _AppSelectorSheetState extends State<AppSelectorSheet> {
   }
 
   List<AppInfo> get _filteredApps {
-    if (_searchQuery.isEmpty) return _installedApps;
-    final query = _searchQuery.toLowerCase();
-    return _installedApps.where((app) {
-      return app.appName.toLowerCase().contains(query) ||
-          app.packageName.toLowerCase().contains(query);
-    }).toList();
+    var apps = _installedApps;
+    // Category filter
+    if (_selectedCategory != 'All') {
+      final cat = _selectedCategory;
+      final presetPkgs = CommonApps.presets
+          .where((p) => p.category == cat)
+          .map((p) => p.packageName)
+          .toSet();
+      apps = apps.where((a) => presetPkgs.contains(a.packageName)).toList();
+    }
+    // Text search
+    if (_searchQuery.isNotEmpty) {
+      final query = _searchQuery.toLowerCase();
+      apps = apps.where((app) {
+        return app.appName.toLowerCase().contains(query) ||
+            app.packageName.toLowerCase().contains(query);
+      }).toList();
+    }
+    return apps;
   }
 
   void _toggleApp(String packageName, String appName) {
@@ -457,6 +473,41 @@ class _AppSelectorSheetState extends State<AppSelectorSheet> {
                   borderSide: BorderSide.none,
                 ),
               ),
+            ),
+          ),
+          const SizedBox(height: 4),
+
+          // ── Category filter chips ──────────────────────────────────────
+          SizedBox(
+            height: 38,
+            child: ListView.separated(
+              padding: const EdgeInsets.symmetric(horizontal: 20),
+              scrollDirection: Axis.horizontal,
+              itemCount: _categories.length,
+              separatorBuilder: (_, _) => const SizedBox(width: 8),
+              itemBuilder: (context, idx) {
+                final cat = _categories[idx];
+                final isActive = cat == _selectedCategory;
+                return GestureDetector(
+                  onTap: () => setState(() => _selectedCategory = cat),
+                  child: AnimatedContainer(
+                    duration: const Duration(milliseconds: 200),
+                    padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 7),
+                    decoration: BoxDecoration(
+                      color: isActive ? const Color(0xFF2D3748) : const Color(0xFFF5F5F7),
+                      borderRadius: BorderRadius.circular(20),
+                    ),
+                    child: Text(
+                      cat,
+                      style: TextStyle(
+                        fontSize: 12,
+                        fontWeight: FontWeight.w600,
+                        color: isActive ? Colors.white : const Color(0xFF64748B),
+                      ),
+                    ),
+                  ),
+                );
+              },
             ),
           ),
           const SizedBox(height: 4),
