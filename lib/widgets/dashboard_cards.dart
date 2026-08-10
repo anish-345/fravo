@@ -7,7 +7,7 @@ import 'app_selector_sheet.dart';
 import 'blocking_permission_flow.dart';
 import 'premium_glass_system.dart';
 
-// ── Beautiful Explanatory Missing Permissions Banner ───────────────────
+// ── Missing Permissions Banner ──────────────────────────────────────────────
 
 class MissingPermissionsBanner extends StatelessWidget {
   final Map<String, bool> permissions;
@@ -30,21 +30,23 @@ class MissingPermissionsBanner extends StatelessWidget {
 
     if (missingCount == 0) return const SizedBox.shrink();
 
-    return UltraGlassContainer(
-      borderRadius: 20,
+    return PuffyGlassContainer(
+      borderRadius: 24,
       padding: const EdgeInsets.all(16),
+      tintColor: const Color(0xFFFFE0C2),
+      tintAlpha: 0.55,
       child: Row(
         children: [
           Container(
             padding: const EdgeInsets.all(10),
             decoration: BoxDecoration(
-              color: const Color(0xFFF59E0B).withValues(alpha: 0.12),
+              gradient: const LinearGradient(colors: GlassPalette.peach),
               shape: BoxShape.circle,
             ),
             child: const Icon(
               Icons.shield_outlined,
-              color: Color(0xFFF59E0B),
-              size: 24,
+              color: Color(0xFF1A1A2E),
+              size: 22,
             ),
           ),
           const SizedBox(width: 12),
@@ -56,31 +58,27 @@ class MissingPermissionsBanner extends StatelessWidget {
                   'Action Required ($missingCount left)',
                   style: const TextStyle(
                     fontSize: 14.5,
-                    fontWeight: FontWeight.bold,
-                    color: Color(0xFF1F2937),
+                    fontWeight: FontWeight.w800,
+                    color: Color(0xFF1A1A2E),
                   ),
                 ),
                 const SizedBox(height: 2),
-                const Text(
+                Text(
                   'Grant permissions to enable app blocking',
-                  style: TextStyle(fontSize: 11.5, color: Color(0xFF6B7280)),
+                  style: const TextStyle(
+                    fontSize: 11.5,
+                    color: Color(0xFF1A1A2E),
+                    fontWeight: FontWeight.w600,
+                  ),
                 ),
               ],
             ),
           ),
           const SizedBox(width: 8),
-          ElevatedButton(
-            style: ElevatedButton.styleFrom(
-              backgroundColor: const Color(0xFF4A90E2),
-              foregroundColor: Colors.white,
-              elevation: 0,
-              shape: RoundedRectangleBorder(
-                borderRadius: BorderRadius.circular(10),
-              ),
-              padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
-              minimumSize: Size.zero,
-              tapTargetSize: MaterialTapTargetSize.shrinkWrap,
-            ),
+          PuffyGlassSubtlePill(
+            label: 'Setup',
+            icon: Icons.settings_rounded,
+            tint: const Color(0xFFFFD0D0),
             onPressed: () {
               showModalBottomSheet(
                 context: context,
@@ -89,10 +87,6 @@ class MissingPermissionsBanner extends StatelessWidget {
                 builder: (_) => BlockingPermissionsSheet(onChanged: onRefresh),
               );
             },
-            child: const Text(
-              'Setup',
-              style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold),
-            ),
           ),
         ],
       ),
@@ -100,14 +94,11 @@ class MissingPermissionsBanner extends StatelessWidget {
   }
 }
 
-// ── Time Hero Card ────────────────────────────────────────────────────────────
+// ── Time Hero Card ─────────────────────────────────────────────────────────
 
-/// Large "screen time left" hero: a glass card with a progress ring around the
-/// remaining minutes, plus steps / earned stat tiles and an ACTIVE/BLOCKED
-/// status pill. The ring is intentionally compact so the stat tiles below it
-/// get the room they need to show their full values.
 class TimeHeroCard extends StatelessWidget {
   final int remaining;
+  final int remainingSeconds; // live second-precision countdown from local timer
   final int earned;
   final int used;
   final int steps;
@@ -115,6 +106,7 @@ class TimeHeroCard extends StatelessWidget {
   const TimeHeroCard({
     super.key,
     required this.remaining,
+    required this.remainingSeconds,
     required this.earned,
     required this.used,
     required this.steps,
@@ -123,10 +115,16 @@ class TimeHeroCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final isActive = remaining > 0;
-    final accent = isActive ? const Color(0xFF10B981) : const Color(0xFFEF4444);
+    final accent = isActive
+        ? GlassPalette.mint
+        : GlassPalette.rose;
     final ringValue = earned > 0 ? (remaining / earned).clamp(0.0, 1.0) : 0.0;
 
-    return GlassHeroCard(
+    return PuffyGlassContainer(
+      borderRadius: 32,
+      padding: const EdgeInsets.all(24),
+      shadowBlur: 28,
+      shadowOffset: const Offset(0, 14),
       child: Column(
         mainAxisSize: MainAxisSize.min,
         children: [
@@ -137,7 +135,6 @@ class TimeHeroCard extends StatelessWidget {
             child: Stack(
               alignment: Alignment.center,
               children: [
-                // Ring: neutral track + colored remaining-time arc.
                 SizedBox(
                   width: 132,
                   height: 132,
@@ -145,10 +142,9 @@ class TimeHeroCard extends StatelessWidget {
                     strokeWidth: 12,
                     strokeCap: StrokeCap.round,
                     value: ringValue,
-                    backgroundColor: const Color(
-                      0xFF64748B,
-                    ).withValues(alpha: 0.12),
-                    valueColor: AlwaysStoppedAnimation<Color>(accent),
+                    backgroundColor:
+                        const Color(0xFF1A1A2E).withValues(alpha: 0.08),
+                    valueColor: AlwaysStoppedAnimation<Color>(accent.last),
                   ),
                 ),
                 Column(
@@ -156,24 +152,67 @@ class TimeHeroCard extends StatelessWidget {
                   children: [
                     FittedBox(
                       fit: BoxFit.scaleDown,
-                      child: Text(
-                        '$remaining',
-                        style: const TextStyle(
-                          fontSize: 44,
-                          fontWeight: FontWeight.w900,
-                          height: 1,
-                          letterSpacing: -1.2,
-                          color: Color(0xFF1A202C),
+                      child: AnimatedSwitcher(
+                        duration: const Duration(milliseconds: 400),
+                        transitionBuilder: (child, anim) => FadeTransition(
+                          opacity: anim,
+                          child: ScaleTransition(
+                            scale: Tween<double>(begin: 0.88, end: 1)
+                                .animate(CurvedAnimation(
+                                  parent: anim,
+                                  curve: Curves.easeOut,
+                                )),
+                            child: child,
+                          ),
                         ),
+                        child: remaining <= 0
+                            ? Text(
+                                '0',
+                                key: const ValueKey('blocked'),
+                                style: const TextStyle(
+                                  fontSize: 44,
+                                  fontWeight: FontWeight.w900,
+                                  height: 1,
+                                  letterSpacing: -1.2,
+                                  color: Color(0xFF1A1A2E),
+                                ),
+                              )
+                            : remainingSeconds < 300 // < 5 min: show MM:SS
+                                ? Text(
+                                    _formatMMSS(remainingSeconds),
+                                    key: ValueKey<int>(remainingSeconds),
+                                    style: const TextStyle(
+                                      fontSize: 32,
+                                      fontWeight: FontWeight.w900,
+                                      height: 1,
+                                      letterSpacing: -1.2,
+                                      color: Color(0xFF1A1A2E),
+                                    ),
+                                  )
+                                : Text(
+                                    '$remaining',
+                                    key: ValueKey<int>(remaining),
+                                    style: const TextStyle(
+                                      fontSize: 44,
+                                      fontWeight: FontWeight.w900,
+                                      height: 1,
+                                      letterSpacing: -1.2,
+                                      color: Color(0xFF1A1A2E),
+                                    ),
+                                  ),
                       ),
                     ),
                     const SizedBox(height: 5),
-                    const Text(
-                      'min left',
-                      style: TextStyle(
+                    Text(
+                      remaining <= 0
+                          ? 'blocked'
+                          : remainingSeconds < 300
+                              ? 'sec left'
+                              : 'min left',
+                      style: const TextStyle(
                         fontSize: 12.5,
                         fontWeight: FontWeight.w600,
-                        color: Color(0xFF4B5563),
+                        color: Color(0xFF1A1A2E),
                       ),
                     ),
                   ],
@@ -190,7 +229,7 @@ class TimeHeroCard extends StatelessWidget {
               style: const TextStyle(
                 fontSize: 13,
                 fontWeight: FontWeight.w600,
-                color: Color(0xFF4B5563),
+                color: Color(0xFF1A1A2E),
               ),
             ),
           ),
@@ -200,7 +239,7 @@ class TimeHeroCard extends StatelessWidget {
               Expanded(
                 child: HeroStatTile(
                   icon: Icons.directions_walk_rounded,
-                  color: const Color(0xFF4A90E2),
+                  gradient: GlassPalette.sky,
                   value: steps >= 1000
                       ? '${(steps / 1000).toStringAsFixed(1)}k'
                       : '$steps',
@@ -211,7 +250,7 @@ class TimeHeroCard extends StatelessWidget {
               Expanded(
                 child: HeroStatTile(
                   icon: Icons.timer_rounded,
-                  color: const Color(0xFF10B981),
+                  gradient: GlassPalette.mint,
                   value: '$earned',
                   label: 'Earned',
                 ),
@@ -219,13 +258,10 @@ class TimeHeroCard extends StatelessWidget {
             ],
           ),
           const SizedBox(height: 14),
-          Container(
-            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 7),
-            decoration: BoxDecoration(
-              color: accent.withValues(alpha: 0.12),
-              borderRadius: BorderRadius.circular(999),
-              border: Border.all(color: accent.withValues(alpha: 0.3)),
-            ),
+          PuffyGlassChip(
+            gradient: accent,
+            padding:
+                const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
             child: Row(
               mainAxisSize: MainAxisSize.min,
               children: [
@@ -234,13 +270,13 @@ class TimeHeroCard extends StatelessWidget {
                       ? Icons.play_arrow_rounded
                       : Icons.lock_clock_rounded,
                   size: 14,
-                  color: accent,
+                  color: const Color(0xFF1A1A2E),
                 ),
                 const SizedBox(width: 6),
                 Text(
                   isActive ? 'ACTIVE' : 'BLOCKED',
-                  style: TextStyle(
-                    color: accent,
+                  style: const TextStyle(
+                    color: Color(0xFF1A1A2E),
                     fontSize: 11,
                     fontWeight: FontWeight.w800,
                     letterSpacing: 0.8,
@@ -253,45 +289,56 @@ class TimeHeroCard extends StatelessWidget {
       ),
     );
   }
+
+  /// Formats seconds as MM:SS (e.g. 263 → "4:23").
+  static String _formatMMSS(int totalSeconds) {
+    final m = totalSeconds ~/ 60;
+    final s = totalSeconds % 60;
+    return '$m:${s.toString().padLeft(2, '0')}';  
+  }
 }
 
-// ── Hero Stat Tile ────────────────────────────────────────────────────────────
+// ── Hero Stat Tile ─────────────────────────────────────────────────────────
 
-/// Compact inline stat (steps / earned) shown inside the time hero card.
 class HeroStatTile extends StatelessWidget {
   final IconData icon;
-  final Color color;
+  final List<Color> gradient;
   final String value;
   final String label;
 
   const HeroStatTile({
     super.key,
     required this.icon,
-    required this.color,
+    required this.gradient,
     required this.value,
     required this.label,
   });
 
   @override
   Widget build(BuildContext context) {
-    return Container(
+    return PuffyGlassContainer(
+      borderRadius: 18,
+      tintColor: Colors.white,
+      tintAlpha: 0.6,
+      shadowBlur: 10,
+      shadowOffset: const Offset(0, 4),
       padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 13),
-      decoration: BoxDecoration(
-        color: const Color(0xFF1F2937).withValues(alpha: 0.04),
-        borderRadius: BorderRadius.circular(16),
-        border: Border.all(
-          color: const Color(0xFF1F2937).withValues(alpha: 0.06),
-        ),
-      ),
       child: Row(
         children: [
           Container(
             padding: const EdgeInsets.all(9),
             decoration: BoxDecoration(
-              color: color.withValues(alpha: 0.12),
+              gradient: LinearGradient(colors: gradient),
               shape: BoxShape.circle,
+              boxShadow: [
+                BoxShadow(
+                  color: gradient.last.withValues(alpha: 0.35),
+                  blurRadius: 8,
+                  offset: const Offset(0, 3),
+                ),
+              ],
             ),
-            child: Icon(icon, size: 19, color: color),
+            child: Icon(icon, size: 18, color: const Color(0xFF1A1A2E)),
           ),
           const SizedBox(width: 10),
           Expanded(
@@ -308,7 +355,7 @@ class HeroStatTile extends StatelessWidget {
                       fontSize: 19,
                       fontWeight: FontWeight.w800,
                       height: 1,
-                      color: Color(0xFF1A202C),
+                      color: Color(0xFF1A1A2E),
                     ),
                   ),
                 ),
@@ -320,7 +367,7 @@ class HeroStatTile extends StatelessWidget {
                   style: const TextStyle(
                     fontSize: 12,
                     fontWeight: FontWeight.w600,
-                    color: Color(0xFF4B5563),
+                    color: Color(0xFF1A1A2E),
                   ),
                 ),
               ],
@@ -332,10 +379,8 @@ class HeroStatTile extends StatelessWidget {
   }
 }
 
-// ── Blocked Apps Card ─────────────────────────────────────────────────────────
+// ── Blocked Apps Card ──────────────────────────────────────────────────────
 
-/// Full-width card listing blocked apps (up to 4) with live per-app usage.
-/// Tapping the manage button (or an app row) opens the app selector.
 class BlockedAppsCard extends StatelessWidget {
   final List<String> apps;
   final TimeBankService timeBank;
@@ -353,9 +398,10 @@ class BlockedAppsCard extends StatelessWidget {
     final visible = apps.take(4).toList();
     final extra = apps.length - visible.length;
 
-    return UltraGlassContainer(
-      borderRadius: 24,
+    return PuffyGlassContainer(
+      borderRadius: 28,
       padding: const EdgeInsets.all(22),
+      shadowBlur: 22,
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
@@ -363,7 +409,7 @@ class BlockedAppsCard extends StatelessWidget {
             children: [
               const Icon(
                 Icons.block_rounded,
-                color: Color(0xFFEF4444),
+                color: Color(0xFF1A1A2E),
                 size: 17,
               ),
               const SizedBox(width: 8),
@@ -374,25 +420,20 @@ class BlockedAppsCard extends StatelessWidget {
                     fontSize: 12,
                     fontWeight: FontWeight.w800,
                     letterSpacing: 1.2,
-                    color: Color(0xFF1F2937),
+                    color: Color(0xFF1A1A2E),
                   ),
                 ),
               ),
-              Container(
-                padding: const EdgeInsets.symmetric(
-                  horizontal: 10,
-                  vertical: 4,
-                ),
-                decoration: BoxDecoration(
-                  color: const Color(0xFFEF4444).withValues(alpha: 0.1),
-                  borderRadius: BorderRadius.circular(999),
-                ),
+              PuffyGlassChip(
+                gradient: GlassPalette.rose,
+                padding:
+                    const EdgeInsets.symmetric(horizontal: 12, vertical: 5),
                 child: Text(
                   '${apps.length}',
                   style: const TextStyle(
                     fontSize: 12,
                     fontWeight: FontWeight.w800,
-                    color: Color(0xFFEF4444),
+                    color: Color(0xFF1A1A2E),
                   ),
                 ),
               ),
@@ -400,36 +441,33 @@ class BlockedAppsCard extends StatelessWidget {
           ),
           const SizedBox(height: 14),
           if (apps.isEmpty)
-            Container(
-              width: double.infinity,
+            PuffyGlassContainer(
+              borderRadius: 18,
+              tintAlpha: 0.55,
               padding: const EdgeInsets.symmetric(vertical: 20),
-              decoration: BoxDecoration(
-                color: const Color(0xFF1F2937).withValues(alpha: 0.04),
-                borderRadius: BorderRadius.circular(16),
-                border: Border.all(
-                  color: const Color(0xFF1F2937).withValues(alpha: 0.07),
-                ),
-              ),
               child: Column(
-                children: [
-                  const Icon(
+                children: const [
+                  Icon(
                     Icons.apps_rounded,
                     size: 26,
-                    color: Color(0xFF4B5563),
+                    color: Color(0xFF1A1A2E),
                   ),
-                  const SizedBox(height: 8),
-                  const Text(
+                  SizedBox(height: 8),
+                  Text(
                     'No apps blocked yet',
                     style: TextStyle(
                       fontSize: 13.5,
                       fontWeight: FontWeight.w700,
-                      color: Color(0xFF1F2937),
+                      color: Color(0xFF1A1A2E),
                     ),
                   ),
-                  const SizedBox(height: 2),
-                  const Text(
+                  SizedBox(height: 2),
+                  Text(
                     'Tap "Manage apps" to add some',
-                    style: TextStyle(fontSize: 12, color: Color(0xFF4B5563)),
+                    style: TextStyle(
+                      fontSize: 12,
+                      color: Color(0xFF1A1A2E),
+                    ),
                   ),
                 ],
               ),
@@ -440,17 +478,15 @@ class BlockedAppsCard extends StatelessWidget {
                 final name = timeBank.displayNameFor(pkg);
                 final usedMins = timeBank.getUsedMinutesForApp(pkg);
                 return Padding(
-                  padding: const EdgeInsets.only(bottom: 12),
+                  padding: const EdgeInsets.only(bottom: 10),
                   child: Row(
                     children: [
                       AppIconWidget(
                         packageName: pkg,
                         size: 32,
                         fallbackIcon: Icons.phone_android_rounded,
-                        fallbackIconColor: const Color(0xFFEF4444),
-                        fallbackBgColor: const Color(
-                          0xFFEF4444,
-                        ).withValues(alpha: 0.12),
+                        fallbackIconColor: const Color(0xFF1A1A2E),
+                        fallbackBgColor: const Color(0xFFFFD0D0),
                       ),
                       const SizedBox(width: 12),
                       Expanded(
@@ -459,7 +495,7 @@ class BlockedAppsCard extends StatelessWidget {
                           style: const TextStyle(
                             fontSize: 14,
                             fontWeight: FontWeight.w700,
-                            color: Color(0xFF1A202C),
+                            color: Color(0xFF1A1A2E),
                           ),
                           maxLines: 1,
                           overflow: TextOverflow.ellipsis,
@@ -470,7 +506,7 @@ class BlockedAppsCard extends StatelessWidget {
                         style: const TextStyle(
                           fontSize: 12,
                           fontWeight: FontWeight.w600,
-                          color: Color(0xFF4B5563),
+                          color: Color(0xFF1A1A2E),
                         ),
                       ),
                     ],
@@ -486,41 +522,16 @@ class BlockedAppsCard extends StatelessWidget {
                 style: const TextStyle(
                   fontSize: 12,
                   fontWeight: FontWeight.w600,
-                  color: Color(0xFF4B5563),
+                  color: Color(0xFF1A1A2E),
                 ),
               ),
             ),
           const SizedBox(height: 16),
-          Material(
-            color: const Color(0xFF4A90E2).withValues(alpha: 0.08),
-            borderRadius: BorderRadius.circular(14),
-            clipBehavior: Clip.antiAlias,
-            child: InkWell(
-              onTap: onManage,
-              child: SizedBox(
-                height: 48,
-                width: double.infinity,
-                child: Row(
-                  mainAxisAlignment: MainAxisAlignment.center,
-                  children: [
-                    const Icon(
-                      Icons.swap_horiz_rounded,
-                      size: 18,
-                      color: Color(0xFF4A90E2),
-                    ),
-                    const SizedBox(width: 8),
-                    const Text(
-                      'Manage Apps',
-                      style: TextStyle(
-                        fontSize: 14,
-                        fontWeight: FontWeight.w700,
-                        color: Color(0xFF4A90E2),
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-            ),
+          PuffyGlassSubtlePill(
+            label: 'Manage Apps',
+            icon: Icons.swap_horiz_rounded,
+            tint: const Color(0xFFBFE5FF),
+            onPressed: onManage,
           ),
         ],
       ),
@@ -528,7 +539,7 @@ class BlockedAppsCard extends StatelessWidget {
   }
 }
 
-// ── Emergency Snooze Card ─────────────────────────────────────────────────────
+// ── Emergency Snooze Card ──────────────────────────────────────────────────
 
 class EmergencySnoozeCard extends StatelessWidget {
   final int totalSteps;
@@ -543,36 +554,32 @@ class EmergencySnoozeCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final hasEnough = totalSteps >= TimeBankService.emergencyPassCostSteps;
+    final tint = hasEnough
+        ? const Color(0xFFFFD0D0)
+        : const Color(0xFFE0E4EE);
+
     return GestureDetector(
       onTap: onTap,
-      child: Container(
-        padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 16),
-        decoration: BoxDecoration(
-          color: hasEnough
-              ? const Color(0xFFEF4444).withValues(alpha: 0.06)
-              : const Color(0xFF64748B).withValues(alpha: 0.06),
-          borderRadius: BorderRadius.circular(18),
-          border: Border.all(
-            color: hasEnough
-                ? const Color(0xFFEF4444).withValues(alpha: 0.25)
-                : const Color(0xFF64748B).withValues(alpha: 0.2),
-          ),
-        ),
+      child: PuffyGlassContainer(
+        borderRadius: 22,
+        tintColor: tint,
+        tintAlpha: 0.6,
+        padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 14),
         child: Row(
           children: [
             Container(
               padding: const EdgeInsets.all(11),
               decoration: BoxDecoration(
-                color: hasEnough
-                    ? const Color(0xFFEF4444).withValues(alpha: 0.12)
-                    : const Color(0xFF64748B).withValues(alpha: 0.1),
+                gradient: LinearGradient(
+                  colors: hasEnough
+                      ? GlassPalette.rose
+                      : const [Color(0xFFE0E4EE), Color(0xFFC5C9D6)],
+                ),
                 shape: BoxShape.circle,
               ),
               child: Icon(
                 Icons.emergency_rounded,
-                color: hasEnough
-                    ? const Color(0xFFEF4444)
-                    : const Color(0xFF6B7280),
+                color: const Color(0xFF1A1A2E),
                 size: 22,
               ),
             ),
@@ -585,12 +592,10 @@ class EmergencySnoozeCard extends StatelessWidget {
                     hasEnough
                         ? 'Emergency 3-Min Pass'
                         : 'Emergency Pass Locked',
-                    style: TextStyle(
+                    style: const TextStyle(
                       fontSize: 14.5,
-                      fontWeight: FontWeight.bold,
-                      color: hasEnough
-                          ? const Color(0xFFEF4444)
-                          : const Color(0xFF6B7280),
+                      fontWeight: FontWeight.w800,
+                      color: Color(0xFF1A1A2E),
                     ),
                   ),
                   const SizedBox(height: 2),
@@ -600,7 +605,7 @@ class EmergencySnoozeCard extends StatelessWidget {
                         : 'Walk ${TimeBankService.emergencyPassCostSteps} steps to unlock this feature',
                     style: const TextStyle(
                       fontSize: 12,
-                      color: Color(0xFF6B7280),
+                      color: Color(0xFF1A1A2E),
                     ),
                   ),
                 ],
@@ -609,7 +614,7 @@ class EmergencySnoozeCard extends StatelessWidget {
             if (hasEnough)
               const Icon(
                 Icons.chevron_right_rounded,
-                color: Color(0xFFEF4444),
+                color: Color(0xFF1A1A2E),
                 size: 20,
               ),
           ],
@@ -619,12 +624,19 @@ class EmergencySnoozeCard extends StatelessWidget {
   }
 }
 
-// ── Emergency Pass Active Banner ──────────────────────────────────────────────
+// ── Emergency Pass Active Banner ───────────────────────────────────────────
 
 class EmergencyPassBanner extends StatefulWidget {
   final DateTime expiry;
+  /// Optional callback fired when the pass expires — use to re-evaluate
+  /// block state immediately instead of waiting for the next 5s poll.
+  final VoidCallback? onExpired;
 
-  const EmergencyPassBanner({super.key, required this.expiry});
+  const EmergencyPassBanner({
+    super.key,
+    required this.expiry,
+    this.onExpired,
+  });
 
   @override
   State<EmergencyPassBanner> createState() => _EmergencyPassBannerState();
@@ -643,7 +655,13 @@ class _EmergencyPassBannerState extends State<EmergencyPassBanner> {
 
   void _update() {
     final r = widget.expiry.difference(DateTime.now());
+    final wasPositive = _remaining.inSeconds > 0;
     if (mounted) setState(() => _remaining = r.isNegative ? Duration.zero : r);
+    // When the pass just expired, fire the callback so blocking is
+    // re-evaluated immediately without waiting for the next 5s poll.
+    if (wasPositive && _remaining.inSeconds <= 0) {
+      widget.onExpired?.call();
+    }
   }
 
   @override
@@ -659,33 +677,25 @@ class _EmergencyPassBannerState extends State<EmergencyPassBanner> {
     final secsDisplay = secs % 60;
     final timeStr = '$mins:${secsDisplay.toString().padLeft(2, '0')}';
 
-    return Container(
+    return PuffyGlassContainer(
+      borderRadius: 22,
+      gradient: GlassPalette.rose,
+      tintAlpha: 0.0,
+      borderAlpha: 0.6,
+      highlightAlpha: 0.6,
+      shadowBlur: 22,
+      shadowOffset: const Offset(0, 12),
       padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 12),
-      decoration: BoxDecoration(
-        gradient: const LinearGradient(
-          colors: [Color(0xFFEF4444), Color(0xFFF97316)],
-          begin: Alignment.centerLeft,
-          end: Alignment.centerRight,
-        ),
-        borderRadius: BorderRadius.circular(16),
-        boxShadow: [
-          BoxShadow(
-            color: const Color(0xFFEF4444).withValues(alpha: 0.3),
-            blurRadius: 12,
-            offset: const Offset(0, 4),
-          ),
-        ],
-      ),
       child: Row(
         children: [
-          const Icon(Icons.timer_outlined, color: Colors.white, size: 22),
+          const Icon(Icons.timer_outlined, color: Color(0xFF1A1A2E), size: 22),
           const SizedBox(width: 10),
           const Expanded(
             child: Text(
               'Emergency Pass Active',
               style: TextStyle(
-                color: Colors.white,
-                fontWeight: FontWeight.bold,
+                color: Color(0xFF1A1A2E),
+                fontWeight: FontWeight.w800,
                 fontSize: 14,
               ),
             ),
@@ -693,13 +703,13 @@ class _EmergencyPassBannerState extends State<EmergencyPassBanner> {
           Container(
             padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
             decoration: BoxDecoration(
-              color: Colors.white.withValues(alpha: 0.2),
-              borderRadius: BorderRadius.circular(10),
+              color: Colors.white.withValues(alpha: 0.6),
+              borderRadius: BorderRadius.circular(14),
             ),
             child: Text(
               timeStr,
               style: const TextStyle(
-                color: Colors.white,
+                color: Color(0xFF1A1A2E),
                 fontWeight: FontWeight.w900,
                 fontSize: 16,
                 letterSpacing: 1,
@@ -712,10 +722,8 @@ class _EmergencyPassBannerState extends State<EmergencyPassBanner> {
   }
 }
 
-// ── Walk to Earn Card ─────────────────────────────────────────────────────────
+// ── Walk to Earn Card ──────────────────────────────────────────────────────
 
-/// Live "steps → screen time" loop card on the home dashboard. Rebuilds every
-/// ~5s (dashboard poll), so the counter ticks up while the user walks.
 class WalkToEarnCard extends StatelessWidget {
   final int steps;
   final int earned;
@@ -753,10 +761,10 @@ class WalkToEarnCard extends StatelessWidget {
       subline = '$stepsToNext steps to your next +1 minute →';
     }
 
-    return UltraGlassContainer(
-      borderRadius: 24,
+    return PuffyGlassContainer(
+      borderRadius: 28,
       padding: const EdgeInsets.all(20),
-      borderWidth: 1.5,
+      shadowBlur: 22,
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
@@ -766,9 +774,9 @@ class WalkToEarnCard extends StatelessWidget {
                 'WALK TO EARN',
                 style: TextStyle(
                   fontSize: 11,
-                  fontWeight: FontWeight.bold,
+                  fontWeight: FontWeight.w800,
                   letterSpacing: 1.5,
-                  color: Color(0xFF4B5563),
+                  color: Color(0xFF1A1A2E),
                 ),
               ),
               const Spacer(),
@@ -780,7 +788,7 @@ class WalkToEarnCard extends StatelessWidget {
                   fontSize: 11,
                   fontWeight: FontWeight.w700,
                   letterSpacing: 0.5,
-                  color: Color(0xFF10B981),
+                  color: Color(0xFF1A1A2E),
                 ),
               ),
             ],
@@ -788,7 +796,6 @@ class WalkToEarnCard extends StatelessWidget {
           const SizedBox(height: 14),
           Row(
             children: [
-              // Animated step counter
               AnimatedSwitcher(
                 duration: const Duration(milliseconds: 350),
                 transitionBuilder: (child, animation) => FadeTransition(
@@ -808,22 +815,21 @@ class WalkToEarnCard extends StatelessWidget {
                     fontWeight: FontWeight.w900,
                     height: 1,
                     letterSpacing: -1.5,
-                    color: Color(0xFF1A202C),
+                    color: Color(0xFF1A1A2E),
                   ),
                 ),
               ),
               const SizedBox(width: 20),
-              // Progress to next minute
               Expanded(
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    Text(
+                    const Text(
                       'next +1 minute',
                       style: TextStyle(
                         fontSize: 12,
                         fontWeight: FontWeight.w600,
-                        color: const Color(0xFF4B5563),
+                        color: Color(0xFF1A1A2E),
                       ),
                     ),
                     const SizedBox(height: 8),
@@ -832,13 +838,12 @@ class WalkToEarnCard extends StatelessWidget {
                       child: LinearProgressIndicator(
                         value: progress,
                         minHeight: 12,
-                        backgroundColor: const Color(
-                          0xFF64748B,
-                        ).withValues(alpha: 0.12),
+                        backgroundColor:
+                            const Color(0xFF1A1A2E).withValues(alpha: 0.08),
                         valueColor: AlwaysStoppedAnimation<Color>(
                           isBlocked
-                              ? const Color(0xFFEF4444)
-                              : const Color(0xFF10B981),
+                              ? GlassPalette.rose.last
+                              : GlassPalette.mint.last,
                         ),
                       ),
                     ),
@@ -850,12 +855,10 @@ class WalkToEarnCard extends StatelessWidget {
           const SizedBox(height: 12),
           Text(
             subline,
-            style: TextStyle(
+            style: const TextStyle(
               fontSize: 12,
               fontWeight: FontWeight.w500,
-              color: isBlocked
-                  ? const Color(0xFFEF4444)
-                  : const Color(0xFF64748B),
+              color: Color(0xFF1A1A2E),
             ),
           ),
         ],
@@ -864,7 +867,8 @@ class WalkToEarnCard extends StatelessWidget {
   }
 }
 
-/// Softly pulsing green dot indicating live step tracking.
+// ── Live pulse dot ─────────────────────────────────────────────────────────
+
 class LivePulseDot extends StatefulWidget {
   const LivePulseDot({super.key});
 
@@ -895,8 +899,8 @@ class _LivePulseDotState extends State<LivePulseDot>
       child: Container(
         width: 8,
         height: 8,
-        decoration: const BoxDecoration(
-          color: Color(0xFF10B981),
+        decoration: BoxDecoration(
+          gradient: const LinearGradient(colors: GlassPalette.mint),
           shape: BoxShape.circle,
         ),
       ),

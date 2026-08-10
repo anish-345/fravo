@@ -1,7 +1,6 @@
 import 'dart:async';
 
 import 'package:flutter/material.dart';
-import 'package:flutter/services.dart';
 import 'package:intl/intl.dart';
 
 import 'screens/onboarding_screen.dart';
@@ -103,13 +102,28 @@ class _FravoDashboardState extends State<FravoDashboard>
   String? _statusMessage;
   Timer? _usageTimer;
 
+  // ── Local 1-second countdown ────────────────────────────────────────────
+  // Event-driven: ticks every second ONLY while the budget is active and
+  // a timed app could be running. This prevents stale "X min left" display
+  // between the 5s native poll cycles.
+  Timer? _countdownTimer;
+
+  /// Snapshotted remaining seconds from the last native sync. The local
+  /// countdown subtracts 1 each second until the next native sync corrects it.
+  int _localRemainingSeconds = 0;
+
+  /// Wall-clock timestamp when [_localRemainingSeconds] was last set from
+  /// a real native sync. Used to detect drift and re-snap on next sync.
+  DateTime? _remainingSetAt;
+
+  /// How many consecutive 5s cycles have passed with the same permission
+  /// result — used to throttle expensive IPC permission checks.
+  int _permCheckCycle = 0;
+  static const int _permCheckEveryNCycles = 6; // every 6×5s = 30s
+
   /// Cached permission status — computed once and reused to avoid
   /// re-rendering the disclosure banner on every rebuild.
   Map<String, bool>? _permissionsCache;
-
-  /// Event channel: native → Flutter for instant sync on app open.
-  static const _syncChannel = MethodChannel('zo_app_blocker_sync_events');
-  StreamSubscription<dynamic>? _syncStreamSubscription;
 
   /// Headline pill state — amber while nothing earned yet, green while
   /// budget remains, red when the budget is exhausted (blocked).
@@ -134,18 +148,10 @@ class _FravoDashboardState extends State<FravoDashboard>
     super.initState();
     WidgetsBinding.instance.addObserver(this);
 
-    // Subscribe to native sync events for instant updates when apps are opened
-    _syncChannel.setMethodCallHandler((call) async {
-      debugPrint('Sync event received: ${call.method}');
-      if (call.method == 'onAppResumed' || call.method == 'onAppOpened') {
-        // Immediately sync usage when app is opened
-        await _pullUsageAndRefresh();
-      }
-    });
-
     WidgetsBinding.instance.addPostFrameCallback((_) async {
       await _refresh();
       _startUsageTimer();
+      _startCountdown();
       _checkFirstWalkWelcome();
     });
   }
@@ -222,7 +228,7 @@ class _FravoDashboardState extends State<FravoDashboard>
   void dispose() {
     WidgetsBinding.instance.removeObserver(this);
     _usageTimer?.cancel();
-    _syncStreamSubscription?.cancel();
+    _countdownTimer?.cancel();
     super.dispose();
   }
 
@@ -234,11 +240,26 @@ class _FravoDashboardState extends State<FravoDashboard>
       _pullUsageAndRefresh();
       // Restart the polling timer (was cancelled on pause).
       _startUsageTimer();
+      _startCountdown();
     } else if (state == AppLifecycleState.paused ||
         state == AppLifecycleState.detached) {
-      // Stop the periodic timer — no need to poll while invisible.
+      // Stop both timers — no need to poll while invisible.
       _usageTimer?.cancel();
       _usageTimer = null;
+      _countdownTimer?.cancel();
+      _countdownTimer = null;
+    } else if (state == AppLifecycleState.resumed) {
+      // Correct drift: subtract elapsed time since last snap so the ring
+      // doesn't show a stale value while the app was backgrounded.
+      if (_remainingSetAt != null && _localRemainingSeconds > 0) {
+        final elapsed = DateTime.now().difference(_remainingSetAt!).inSeconds;
+        if (elapsed > 0 && mounted) {
+          setState(() {
+            _localRemainingSeconds =
+                (_localRemainingSeconds - elapsed).clamp(0, _localRemainingSeconds);
+          });
+        }
+      }
     }
   }
 
@@ -262,14 +283,59 @@ class _FravoDashboardState extends State<FravoDashboard>
     //    then decides whether to block or update the native trip-wire limit.
     await _blockerService.evaluateBlockState();
 
-    if (mounted) setState(() {});
+    // 3. Snap the local countdown to the accurate value from native sync.
+    if (mounted) {
+      final newRemaining = _timeBank.remainingScreenTimeSeconds;
+      setState(() {
+        _localRemainingSeconds = newRemaining;
+        _remainingSetAt = DateTime.now();
+      });
+    }
+
+    // 4. Start / stop the 1-second countdown based on budget state.
+    _startCountdown();
+  }
+
+  /// Starts the local 1-second countdown timer.
+  ///
+  /// Active only while [_localRemainingSeconds] > 0 (budget available).
+  /// Stops itself when it hits zero (lets the next native poll handle blocking).
+  void _startCountdown() {
+    // Don't double-start.
+    if (_countdownTimer != null && _countdownTimer!.isActive) return;
+    // Only run if there's budget to count down.
+    if (_localRemainingSeconds <= 0) return;
+
+    _countdownTimer = Timer.periodic(const Duration(seconds: 1), (_) {
+      if (!mounted) {
+        _countdownTimer?.cancel();
+        return;
+      }
+      setState(() {
+        if (_localRemainingSeconds > 0) {
+          _localRemainingSeconds--;
+        }
+      });
+      if (_localRemainingSeconds <= 0) {
+        _countdownTimer?.cancel();
+        _countdownTimer = null;
+        // Budget just hit zero locally — trigger a native sync to apply blocking.
+        _pullUsageAndRefresh();
+      }
+    });
   }
 
   void _startUsageTimer() {
     if (_usageTimer != null && _usageTimer!.isActive) return;
     _healthService.startAutoHealthSync();
+    _permCheckCycle = 0;
     _usageTimer = Timer.periodic(const Duration(seconds: 5), (_) {
-      _checkPermissions();
+      // Only check permissions every 30s (6×5s cycles) — it's an expensive IPC.
+      _permCheckCycle++;
+      if (_permCheckCycle >= _permCheckEveryNCycles) {
+        _permCheckCycle = 0;
+        _checkPermissions();
+      }
       _pullUsageAndRefresh();
     });
   }
@@ -638,7 +704,13 @@ class _FravoDashboardState extends State<FravoDashboard>
 
               // ── Active Emergency Pass Banner ────────────────────────
               if (hasEmergencyPass && emergencyExpiry != null) ...[
-                EmergencyPassBanner(expiry: emergencyExpiry),
+                EmergencyPassBanner(
+                  expiry: emergencyExpiry,
+                  onExpired: () {
+                    // Pass just expired — immediately sync and re-block.
+                    _pullUsageAndRefresh();
+                  },
+                ),
                 const SizedBox(height: 16),
               ],
 
@@ -655,6 +727,7 @@ class _FravoDashboardState extends State<FravoDashboard>
               // ── Hero: Screen-Time Ring ──────────────────────────────────────
               TimeHeroCard(
                 remaining: remaining,
+                remainingSeconds: _localRemainingSeconds,
                 earned: earned,
                 used: used,
                 steps: totalSteps,

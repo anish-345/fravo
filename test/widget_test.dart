@@ -6,12 +6,12 @@ import 'package:fravo/services/time_bank.dart';
 void main() {
   group('BlockerService startup re-arm logic', () {
     test(
-      'forces a native re-arm on startup even when the earned budget is unchanged',
+      'forces a native re-arm on startup even when remaining budget is unchanged',
       () {
         expect(
           BlockerService.shouldArmNativeLimit(
-            earnedMinutes: 6,
-            lastSetEarnedMinutes: 6,
+            remaining: 6,
+            lastSetRemainingMinutes: 6,
             forceRearm: true,
           ),
           isTrue,
@@ -20,15 +20,43 @@ void main() {
     );
 
     test(
-      'skips re-arming when the earned budget has not changed and startup force is off',
+      'skips re-arming when remaining budget has not changed and startup force is off',
       () {
         expect(
           BlockerService.shouldArmNativeLimit(
-            earnedMinutes: 6,
-            lastSetEarnedMinutes: 6,
+            remaining: 6,
+            lastSetRemainingMinutes: 6,
             forceRearm: false,
           ),
           isFalse,
+        );
+      },
+    );
+
+    test(
+      're-arms when remaining drops by ≥1 min (user used apps between cycles)',
+      () {
+        expect(
+          BlockerService.shouldArmNativeLimit(
+            remaining: 5,
+            lastSetRemainingMinutes: 7,
+            forceRearm: false,
+          ),
+          isTrue,
+        );
+      },
+    );
+
+    test(
+      're-arms on first startup (lastSetRemainingMinutes == -1)',
+      () {
+        expect(
+          BlockerService.shouldArmNativeLimit(
+            remaining: 30,
+            lastSetRemainingMinutes: -1,
+            forceRearm: false,
+          ),
+          isTrue,
         );
       },
     );

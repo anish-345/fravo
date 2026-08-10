@@ -1,4 +1,4 @@
-import 'dart:io';
+﻿import 'dart:io';
 import 'dart:ui';
 import 'package:fl_chart/fl_chart.dart';
 import 'package:flutter/material.dart';
@@ -10,6 +10,7 @@ import 'package:share_plus/share_plus.dart';
 import '../services/health_service.dart';
 import '../services/time_bank.dart';
 import '../widgets/app_selector_sheet.dart';
+import '../widgets/premium_glass_system.dart';
 
 class StatsScreen extends StatefulWidget {
   const StatsScreen({super.key});
@@ -125,114 +126,105 @@ class _StatsScreenState extends State<StatsScreen>
     showDialog(
       context: context,
       builder: (ctx) => StatefulBuilder(
-        builder: (context, setLocal) => AlertDialog(
-          shape: RoundedRectangleBorder(
-            borderRadius: BorderRadius.circular(24),
-          ),
-          title: const Row(
-            children: [
-              Text('🎯 ', style: TextStyle(fontSize: 22)),
-              Text(
-                'Daily Step Goal',
-                style: TextStyle(fontWeight: FontWeight.bold, fontSize: 17),
-              ),
-            ],
-          ),
-          content: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: goals.map((g) {
-              final isSelected = selected == g;
-              return Padding(
-                padding: const EdgeInsets.only(bottom: 8),
-                child: InkWell(
-                  borderRadius: BorderRadius.circular(14),
-                  onTap: () => setLocal(() => selected = g),
-                  child: AnimatedContainer(
-                    duration: const Duration(milliseconds: 200),
-                    padding: const EdgeInsets.symmetric(
-                      horizontal: 18,
-                      vertical: 12,
-                    ),
-                    decoration: BoxDecoration(
-                      color: isSelected
-                          ? const Color(0xFF10B981).withValues(alpha: 0.12)
-                          : const Color(0xFFEDF2F7),
-                      borderRadius: BorderRadius.circular(14),
-                      border: Border.all(
-                        color: isSelected
-                            ? const Color(0xFF10B981)
-                            : Colors.transparent,
-                        width: 1.5,
+        builder: (context, setLocal) => Dialog(
+          backgroundColor: Colors.transparent,
+          insetPadding: const EdgeInsets.symmetric(horizontal: 24),
+          child: PuffyGlassContainer(
+            borderRadius: 32,
+            padding: const EdgeInsets.fromLTRB(24, 26, 24, 22),
+            shadowBlur: 32,
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                const Row(
+                  children: [
+                    Text('🎯 ', style: TextStyle(fontSize: 22)),
+                    Text(
+                      'Daily Step Goal',
+                      style: TextStyle(
+                        fontWeight: FontWeight.w800,
+                        fontSize: 17,
+                        color: Color(0xFF1A1A2E),
                       ),
                     ),
-                    child: Row(
-                      children: [
-                        Text(
-                          g >= 1000
-                              ? '${(g / 1000).toStringAsFixed(0)}k steps'
-                              : '$g steps',
-                          style: TextStyle(
-                            fontWeight: FontWeight.w700,
-                            fontSize: 15,
-                            color: isSelected
-                                ? const Color(0xFF10B981)
-                                : const Color(0xFF1A202C),
-                          ),
+                  ],
+                ),
+                const SizedBox(height: 16),
+                ...goals.map((g) {
+                  final isSelected = selected == g;
+                  return Padding(
+                    padding: const EdgeInsets.only(bottom: 8),
+                    child: GestureDetector(
+                      onTap: () => setLocal(() => selected = g),
+                      child: PuffyGlassContainer(
+                        borderRadius: 18,
+                        tintColor:
+                            isSelected ? const Color(0xFFB8F2D8) : null,
+                        tintAlpha: isSelected ? 0.8 : 0.5,
+                        borderAlpha: isSelected ? 0.85 : 0.6,
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 18,
+                          vertical: 12,
                         ),
-                        const Spacer(),
-                        if (g == 10000)
-                          Container(
-                            padding: const EdgeInsets.symmetric(
-                              horizontal: 8,
-                              vertical: 3,
-                            ),
-                            decoration: BoxDecoration(
-                              color: const Color(
-                                0xFF4A90E2,
-                              ).withValues(alpha: 0.1),
-                              borderRadius: BorderRadius.circular(8),
-                            ),
-                            child: const Text(
-                              'Default',
+                        child: Row(
+                          children: [
+                            Text(
+                              g >= 1000
+                                  ? '${(g / 1000).toStringAsFixed(0)}k steps'
+                                  : '$g steps',
                               style: TextStyle(
-                                fontSize: 10,
-                                color: Color(0xFF4A90E2),
-                                fontWeight: FontWeight.bold,
+                                fontWeight: FontWeight.w700,
+                                fontSize: 15,
+                                color: const Color(0xFF1A1A2E),
                               ),
                             ),
-                          ),
-                        if (isSelected)
-                          const Icon(
-                            Icons.check_circle_rounded,
-                            color: Color(0xFF10B981),
-                            size: 20,
-                          ),
-                      ],
+                            const Spacer(),
+                            if (g == 10000)
+                              PuffyGlassChip(
+                                tint: const Color(0xFFBFE5FF),
+                                padding: const EdgeInsets.symmetric(
+                                  horizontal: 8,
+                                  vertical: 3,
+                                ),
+                                child: const Text(
+                                  'Default',
+                                  style: TextStyle(
+                                    fontSize: 10,
+                                    color: Color(0xFF1A1A2E),
+                                    fontWeight: FontWeight.w800,
+                                  ),
+                                ),
+                              ),
+                            if (isSelected) ...[
+                              const SizedBox(width: 6),
+                              const Icon(
+                                Icons.check_circle_rounded,
+                                color: Color(0xFF1A1A2E),
+                                size: 20,
+                              ),
+                            ],
+                          ],
+                        ),
+                      ),
                     ),
-                  ),
+                  );
+                }),
+                const SizedBox(height: 14),
+                PuffyGlassPillButton(
+                  label: 'Set Goal',
+                  gradient: GlassPalette.mint,
+                  onPressed: () async {
+                    await _timeBank.setCustomStepGoal(selected);
+                    if (ctx.mounted) {
+                      setState(() {});
+                      Navigator.pop(ctx);
+                    }
+                  },
                 ),
-              );
-            }).toList(),
+              ],
+            ),
           ),
-          actions: [
-            TextButton(
-              onPressed: () => Navigator.pop(ctx),
-              child: const Text('Cancel'),
-            ),
-            FilledButton(
-              style: FilledButton.styleFrom(
-                backgroundColor: const Color(0xFF10B981),
-              ),
-              onPressed: () async {
-                await _timeBank.setCustomStepGoal(selected);
-                if (ctx.mounted) {
-                  setState(() {});
-                  Navigator.pop(ctx);
-                }
-              },
-              child: const Text('Set Goal'),
-            ),
-          ],
         ),
       ),
     );
@@ -305,17 +297,19 @@ class _StatsScreenState extends State<StatsScreen>
         elevation: 0,
         leading: GestureDetector(
           onTap: () => Navigator.pop(context),
-          child: Container(
-            margin: const EdgeInsets.all(8),
-            decoration: BoxDecoration(
-              color: Colors.white.withValues(alpha: 0.6),
-              borderRadius: BorderRadius.circular(12),
-              border: Border.all(color: Colors.white.withValues(alpha: 0.8)),
-            ),
-            child: const Icon(
-              Icons.arrow_back_ios_new_rounded,
-              color: Color(0xFF1A202C),
-              size: 18,
+          child: Padding(
+            padding: const EdgeInsets.all(8),
+            child: PuffyGlassContainer(
+              borderRadius: 14,
+              tintAlpha: 0.7,
+              shadowBlur: 10,
+              shadowOffset: const Offset(0, 4),
+              padding: const EdgeInsets.all(8),
+              child: const Icon(
+                Icons.arrow_back_ios_new_rounded,
+                color: Color(0xFF1A1A2E),
+                size: 18,
+              ),
             ),
           ),
         ),
@@ -324,15 +318,15 @@ class _StatsScreenState extends State<StatsScreen>
             const Text(
               'My Stats',
               style: TextStyle(
-                color: Color(0xFF1A202C),
+                color: Color(0xFF1A1A2E),
                 fontSize: 20,
-                fontWeight: FontWeight.bold,
+                fontWeight: FontWeight.w800,
               ),
             ),
             Text(
               today,
               style: const TextStyle(
-                color: Color(0xFF64748B),
+                color: Color(0xFF1A1A2E),
                 fontSize: 12,
                 fontWeight: FontWeight.w500,
               ),
@@ -343,28 +337,29 @@ class _StatsScreenState extends State<StatsScreen>
         actions: [
           GestureDetector(
             onTap: _isLoading ? null : _refreshSteps,
-            child: Container(
-              margin: const EdgeInsets.all(8),
+            child: Padding(
               padding: const EdgeInsets.all(8),
-              decoration: BoxDecoration(
-                color: Colors.white.withValues(alpha: 0.6),
-                borderRadius: BorderRadius.circular(12),
-                border: Border.all(color: Colors.white.withValues(alpha: 0.8)),
-              ),
-              child: _isLoading
-                  ? const SizedBox(
-                      width: 18,
-                      height: 18,
-                      child: CircularProgressIndicator(
-                        strokeWidth: 2,
-                        color: Color(0xFF4A90E2),
+              child: PuffyGlassContainer(
+                borderRadius: 14,
+                tintAlpha: 0.7,
+                shadowBlur: 10,
+                shadowOffset: const Offset(0, 4),
+                padding: const EdgeInsets.all(8),
+                child: _isLoading
+                    ? const SizedBox(
+                        width: 18,
+                        height: 18,
+                        child: CircularProgressIndicator(
+                          strokeWidth: 2,
+                          color: Color(0xFF1A1A2E),
+                        ),
+                      )
+                    : const Icon(
+                        Icons.refresh_rounded,
+                        color: Color(0xFF1A1A2E),
+                        size: 18,
                       ),
-                    )
-                  : const Icon(
-                      Icons.refresh_rounded,
-                      color: Color(0xFF4A90E2),
-                      size: 18,
-                    ),
+              ),
             ),
           ),
           const SizedBox(width: 4),
@@ -421,7 +416,7 @@ class _StatsScreenState extends State<StatsScreen>
                           Expanded(
                             child: _metricTile(
                               icon: Icons.local_fire_department_rounded,
-                              color: const Color(0xFFF59E0B),
+                              gradient: GlassPalette.peach,
                               label: 'Calories',
                               value: '$calories',
                               unit: 'kcal',
@@ -431,7 +426,7 @@ class _StatsScreenState extends State<StatsScreen>
                           Expanded(
                             child: _metricTile(
                               icon: Icons.timer_outlined,
-                              color: const Color(0xFF10B981),
+                              gradient: GlassPalette.mint,
                               label: 'Active',
                               value: '$activeMin',
                               unit: 'min',
@@ -441,7 +436,7 @@ class _StatsScreenState extends State<StatsScreen>
                           Expanded(
                             child: _metricTile(
                               icon: Icons.trending_up_rounded,
-                              color: const Color(0xFF4A90E2),
+                              gradient: GlassPalette.sky,
                               label: 'Goal',
                               value:
                                   '${((steps / goal) * 100).clamp(0, 100).toInt()}',
@@ -509,23 +504,15 @@ class _StatsScreenState extends State<StatsScreen>
   // ── Streak Banner ─────────────────────────────────────────────────────────
 
   Widget _buildStreakBanner(int streak) {
-    return Container(
+    return PuffyGlassContainer(
+      borderRadius: 22,
+      gradient: const [Color(0xFFFFE0C2), Color(0xFFFFB685)],
+      tintAlpha: 0.0,
+      borderAlpha: 0.6,
+      highlightAlpha: 0.55,
+      shadowBlur: 24,
+      shadowOffset: const Offset(0, 12),
       padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 14),
-      decoration: BoxDecoration(
-        gradient: const LinearGradient(
-          colors: [Color(0xFFF59E0B), Color(0xFFEF4444)],
-          begin: Alignment.centerLeft,
-          end: Alignment.centerRight,
-        ),
-        borderRadius: BorderRadius.circular(18),
-        boxShadow: [
-          BoxShadow(
-            color: const Color(0xFFF59E0B).withValues(alpha: 0.35),
-            blurRadius: 16,
-            offset: const Offset(0, 6),
-          ),
-        ],
-      ),
       child: Row(
         children: [
           const Text('🔥', style: TextStyle(fontSize: 28)),
@@ -537,7 +524,7 @@ class _StatsScreenState extends State<StatsScreen>
                 Text(
                   '$streak-Day Anti-Bedrot Streak!',
                   style: const TextStyle(
-                    color: Colors.white,
+                    color: Color(0xFF1A1A2E),
                     fontSize: 15,
                     fontWeight: FontWeight.w900,
                   ),
@@ -547,25 +534,25 @@ class _StatsScreenState extends State<StatsScreen>
                   streak == 1
                       ? 'Day 1! Keep walking, stop the scroll. 💪'
                       : 'You\'re on a roll — don\'t break the chain!',
-                  style: TextStyle(
-                    color: Colors.white.withValues(alpha: 0.85),
+                  style: const TextStyle(
+                    color: Color(0xFF1A1A2E),
                     fontSize: 12,
-                    fontWeight: FontWeight.w500,
+                    fontWeight: FontWeight.w600,
                   ),
                 ),
               ],
             ),
           ),
           Container(
-            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
             decoration: BoxDecoration(
-              color: Colors.white.withValues(alpha: 0.2),
-              borderRadius: BorderRadius.circular(12),
+              color: Colors.white.withValues(alpha: 0.6),
+              borderRadius: BorderRadius.circular(14),
             ),
             child: Text(
               '🏆 $streak',
               style: const TextStyle(
-                color: Colors.white,
+                color: Color(0xFF1A1A2E),
                 fontWeight: FontWeight.w900,
                 fontSize: 14,
               ),
@@ -576,24 +563,42 @@ class _StatsScreenState extends State<StatsScreen>
     );
   }
 
-  // ── Screen Time Hero ────────────────────────────────────────────────────────
-
   // ── Steps Card ───────────────────────────────────────────────────────────
 
   Widget _buildStepsCard(int steps, int minutesPer1k, int goal) {
     final ratio = (steps / goal).clamp(0.0, 1.0);
 
-    return _GlassCard(
+    return PuffyGlassContainer(
+      borderRadius: 24,
       padding: const EdgeInsets.all(18),
+      shadowBlur: 20,
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          _iconBadge(Icons.directions_walk_rounded, const Color(0xFF10B981)),
+          Container(
+            padding: const EdgeInsets.all(9),
+            decoration: BoxDecoration(
+              gradient: const LinearGradient(colors: GlassPalette.mint),
+              borderRadius: BorderRadius.circular(12),
+              boxShadow: [
+                BoxShadow(
+                  color: GlassPalette.mint.last.withValues(alpha: 0.4),
+                  blurRadius: 10,
+                  offset: const Offset(0, 4),
+                ),
+              ],
+            ),
+            child: const Icon(
+              Icons.directions_walk_rounded,
+              color: Color(0xFF1A1A2E),
+              size: 20,
+            ),
+          ),
           const SizedBox(height: 12),
           Text(
             _formatSteps(steps),
             style: const TextStyle(
-              color: Color(0xFF1A202C),
+              color: Color(0xFF1A1A2E),
               fontSize: 30,
               fontWeight: FontWeight.w900,
               height: 1,
@@ -602,14 +607,14 @@ class _StatsScreenState extends State<StatsScreen>
           const Text(
             'steps today',
             style: TextStyle(
-              color: Color(0xFF64748B),
+              color: Color(0xFF1A1A2E),
               fontSize: 12,
               fontWeight: FontWeight.w500,
             ),
           ),
           const SizedBox(height: 12),
           ClipRRect(
-            borderRadius: BorderRadius.circular(6),
+            borderRadius: BorderRadius.circular(8),
             child: TweenAnimationBuilder<double>(
               tween: Tween(begin: 0, end: ratio),
               duration: const Duration(milliseconds: 900),
@@ -617,8 +622,10 @@ class _StatsScreenState extends State<StatsScreen>
               builder: (_, val, _) => LinearProgressIndicator(
                 value: val,
                 minHeight: 7,
-                backgroundColor: const Color(0xFFEDF2F7),
-                valueColor: const AlwaysStoppedAnimation(Color(0xFF10B981)),
+                backgroundColor: const Color(0xFF1A1A2E).withValues(alpha: 0.08),
+                valueColor: const AlwaysStoppedAnimation(
+                  Color(0xFF1A1A2E),
+                ),
               ),
             ),
           ),
@@ -630,7 +637,7 @@ class _StatsScreenState extends State<StatsScreen>
                 Text(
                   '${(ratio * 100).toInt()}% of ${goal >= 1000 ? '${(goal / 1000).toStringAsFixed(0)}k' : '$goal'} goal',
                   style: const TextStyle(
-                    color: Color(0xFF64748B),
+                    color: Color(0xFF1A1A2E),
                     fontSize: 11,
                     fontWeight: FontWeight.w500,
                   ),
@@ -639,7 +646,7 @@ class _StatsScreenState extends State<StatsScreen>
                 const Icon(
                   Icons.edit_rounded,
                   size: 11,
-                  color: Color(0xFF4A90E2),
+                  color: Color(0xFF1A1A2E),
                 ),
               ],
             ),
@@ -655,12 +662,32 @@ class _StatsScreenState extends State<StatsScreen>
     final metres = (km * 1000).round();
     final displayKm = km >= 1.0;
 
-    return _GlassCard(
+    return PuffyGlassContainer(
+      borderRadius: 24,
       padding: const EdgeInsets.all(18),
+      shadowBlur: 20,
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          _iconBadge(Icons.route_rounded, const Color(0xFF8B5CF6)),
+          Container(
+            padding: const EdgeInsets.all(9),
+            decoration: BoxDecoration(
+              gradient: const LinearGradient(colors: GlassPalette.lavender),
+              borderRadius: BorderRadius.circular(12),
+              boxShadow: [
+                BoxShadow(
+                  color: GlassPalette.lavender.last.withValues(alpha: 0.4),
+                  blurRadius: 10,
+                  offset: const Offset(0, 4),
+                ),
+              ],
+            ),
+            child: const Icon(
+              Icons.route_rounded,
+              color: Color(0xFF1A1A2E),
+              size: 20,
+            ),
+          ),
           const SizedBox(height: 12),
           Row(
             crossAxisAlignment: CrossAxisAlignment.baseline,
@@ -669,7 +696,7 @@ class _StatsScreenState extends State<StatsScreen>
               Text(
                 displayKm ? km.toStringAsFixed(2) : '$metres',
                 style: const TextStyle(
-                  color: Color(0xFF1A202C),
+                  color: Color(0xFF1A1A2E),
                   fontSize: 30,
                   fontWeight: FontWeight.w900,
                   height: 1,
@@ -679,7 +706,7 @@ class _StatsScreenState extends State<StatsScreen>
               Text(
                 displayKm ? 'km' : 'm',
                 style: const TextStyle(
-                  color: Color(0xFF64748B),
+                  color: Color(0xFF1A1A2E),
                   fontSize: 14,
                   fontWeight: FontWeight.w600,
                 ),
@@ -689,7 +716,7 @@ class _StatsScreenState extends State<StatsScreen>
           const Text(
             'distance walked',
             style: TextStyle(
-              color: Color(0xFF64748B),
+              color: Color(0xFF1A1A2E),
               fontSize: 12,
               fontWeight: FontWeight.w500,
             ),
@@ -716,18 +743,15 @@ class _StatsScreenState extends State<StatsScreen>
       nextMilestone = 10;
       milestoneName = '10 km';
     } else {
-      return Container(
-        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-        decoration: BoxDecoration(
-          color: const Color(0xFF8B5CF6).withValues(alpha: 0.1),
-          borderRadius: BorderRadius.circular(8),
-        ),
+      return PuffyGlassChip(
+        gradient: GlassPalette.lavender,
+        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
         child: const Text(
           '🏅 Milestone reached!',
           style: TextStyle(
-            color: Color(0xFF8B5CF6),
+            color: Color(0xFF1A1A2E),
             fontSize: 11,
-            fontWeight: FontWeight.bold,
+            fontWeight: FontWeight.w800,
           ),
         ),
       );
@@ -737,9 +761,9 @@ class _StatsScreenState extends State<StatsScreen>
     return Text(
       '${remaining}m to $milestoneName',
       style: const TextStyle(
-        color: Color(0xFF8B5CF6),
+        color: Color(0xFF1A1A2E),
         fontSize: 11,
-        fontWeight: FontWeight.w600,
+        fontWeight: FontWeight.w700,
       ),
     );
   }
@@ -748,23 +772,32 @@ class _StatsScreenState extends State<StatsScreen>
 
   Widget _metricTile({
     required IconData icon,
-    required Color color,
+    required List<Color> gradient,
     required String label,
     required String value,
     required String unit,
   }) {
-    return _GlassCard(
-      padding: const EdgeInsets.symmetric(vertical: 16, horizontal: 12),
+    return PuffyGlassContainer(
+      borderRadius: 22,
+      padding: const EdgeInsets.symmetric(vertical: 14, horizontal: 12),
+      shadowBlur: 16,
       child: Column(
         mainAxisSize: MainAxisSize.min,
         children: [
           Container(
             padding: const EdgeInsets.all(8),
             decoration: BoxDecoration(
-              color: color.withValues(alpha: 0.1),
-              borderRadius: BorderRadius.circular(10),
+              gradient: LinearGradient(colors: gradient),
+              borderRadius: BorderRadius.circular(12),
+              boxShadow: [
+                BoxShadow(
+                  color: gradient.last.withValues(alpha: 0.4),
+                  blurRadius: 8,
+                  offset: const Offset(0, 3),
+                ),
+              ],
             ),
-            child: Icon(icon, color: color, size: 18),
+            child: Icon(icon, color: const Color(0xFF1A1A2E), size: 18),
           ),
           const SizedBox(height: 8),
           RichText(
@@ -774,7 +807,7 @@ class _StatsScreenState extends State<StatsScreen>
                 TextSpan(
                   text: value,
                   style: const TextStyle(
-                    color: Color(0xFF1A202C),
+                    color: Color(0xFF1A1A2E),
                     fontSize: 20,
                     fontWeight: FontWeight.w900,
                     height: 1,
@@ -783,9 +816,9 @@ class _StatsScreenState extends State<StatsScreen>
                 TextSpan(
                   text: unit,
                   style: const TextStyle(
-                    color: Color(0xFF64748B),
+                    color: Color(0xFF1A1A2E),
                     fontSize: 10,
-                    fontWeight: FontWeight.w600,
+                    fontWeight: FontWeight.w700,
                   ),
                 ),
               ],
@@ -795,9 +828,9 @@ class _StatsScreenState extends State<StatsScreen>
           Text(
             label,
             style: const TextStyle(
-              color: Color(0xFF64748B),
+              color: Color(0xFF1A1A2E),
               fontSize: 10,
-              fontWeight: FontWeight.w600,
+              fontWeight: FontWeight.w700,
             ),
           ),
         ],
@@ -845,14 +878,35 @@ class _StatsScreenState extends State<StatsScreen>
       (prev, d) => d.steps > prev ? d.steps : prev,
     );
 
-    return _GlassCard(
+    return PuffyGlassContainer(
+      borderRadius: 28,
       padding: const EdgeInsets.all(20),
+      shadowBlur: 22,
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Row(
             children: [
-              _iconBadge(Icons.bar_chart_rounded, const Color(0xFF6366F1)),
+              Container(
+                padding: const EdgeInsets.all(9),
+                decoration: BoxDecoration(
+                  gradient: const LinearGradient(colors: GlassPalette.lavender),
+                  borderRadius: BorderRadius.circular(12),
+                  boxShadow: [
+                    BoxShadow(
+                      color:
+                          GlassPalette.lavender.last.withValues(alpha: 0.4),
+                      blurRadius: 10,
+                      offset: const Offset(0, 4),
+                    ),
+                  ],
+                ),
+                child: const Icon(
+                  Icons.bar_chart_rounded,
+                  color: Color(0xFF1A1A2E),
+                  size: 20,
+                ),
+              ),
               const SizedBox(width: 12),
               const Expanded(
                 child: Column(
@@ -861,14 +915,17 @@ class _StatsScreenState extends State<StatsScreen>
                     Text(
                       '7-Day Activity',
                       style: TextStyle(
-                        color: Color(0xFF1A202C),
+                        color: Color(0xFF1A1A2E),
                         fontSize: 15,
-                        fontWeight: FontWeight.bold,
+                        fontWeight: FontWeight.w800,
                       ),
                     ),
                     Text(
                       'Steps per day vs your goal',
-                      style: TextStyle(color: Color(0xFF64748B), fontSize: 11),
+                      style: TextStyle(
+                        color: Color(0xFF1A1A2E),
+                        fontSize: 11,
+                      ),
                     ),
                   ],
                 ),
@@ -885,14 +942,14 @@ class _StatsScreenState extends State<StatsScreen>
                       children: [
                         Icon(
                           Icons.show_chart_rounded,
-                          color: const Color(0xFF64748B).withValues(alpha: 0.4),
+                          color: const Color(0xFF1A1A2E),
                           size: 40,
                         ),
                         const SizedBox(height: 8),
                         const Text(
                           'Walk today to start your history!',
                           style: TextStyle(
-                            color: Color(0xFF64748B),
+                            color: Color(0xFF1A1A2E),
                             fontSize: 12,
                           ),
                         ),
@@ -910,7 +967,7 @@ class _StatsScreenState extends State<StatsScreen>
                             return BarTooltipItem(
                               '${d.label}\n${_formatSteps(d.steps)} steps',
                               const TextStyle(
-                                color: Colors.white,
+                                color: Color(0xFF1A1A2E),
                                 fontSize: 11,
                                 fontWeight: FontWeight.bold,
                               ),
@@ -934,10 +991,11 @@ class _StatsScreenState extends State<StatsScreen>
                                   days[idx].label,
                                   style: TextStyle(
                                     fontSize: 9,
-                                    fontWeight: FontWeight.w600,
+                                    fontWeight: FontWeight.w700,
                                     color: idx == 6
-                                        ? const Color(0xFF4A90E2)
-                                        : const Color(0xFF64748B),
+                                        ? GlassPalette.lavender.last
+                                        : const Color(0xFF1A1A2E)
+                                            .withValues(alpha: 0.6),
                                   ),
                                 ),
                               );
@@ -960,9 +1018,8 @@ class _StatsScreenState extends State<StatsScreen>
                         drawVerticalLine: false,
                         horizontalInterval: goal.toDouble(),
                         getDrawingHorizontalLine: (_) => FlLine(
-                          color: const Color(
-                            0xFF10B981,
-                          ).withValues(alpha: 0.25),
+                          color: GlassPalette.mint.last
+                              .withValues(alpha: 0.5),
                           strokeWidth: 1,
                           dashArray: [4, 4],
                         ),
@@ -979,16 +1036,18 @@ class _StatsScreenState extends State<StatsScreen>
                             BarChartRodData(
                               toY: d.steps.toDouble(),
                               width: 18,
-                              borderRadius: BorderRadius.circular(6),
+                              borderRadius: BorderRadius.circular(8),
                               color: isToday
-                                  ? const Color(0xFF4A90E2)
+                                  ? GlassPalette.lavender.last
                                   : metGoal
-                                  ? const Color(0xFF10B981)
-                                  : const Color(0xFF94A3B8),
+                                      ? GlassPalette.mint.last
+                                      : const Color(0xFF1A1A2E)
+                                          .withValues(alpha: 0.25),
                               backDrawRodData: BackgroundBarChartRodData(
                                 show: true,
                                 toY: maxSteps.toDouble() * 1.2,
-                                color: const Color(0xFFEDF2F7),
+                                color:
+                                    const Color(0xFF1A1A2E).withValues(alpha: 0.06),
                               ),
                             ),
                           ],
@@ -1001,11 +1060,14 @@ class _StatsScreenState extends State<StatsScreen>
           Row(
             mainAxisAlignment: MainAxisAlignment.center,
             children: [
-              _legendDot(const Color(0xFF10B981), 'Goal met'),
+              _legendDot(GlassPalette.mint.last, 'Goal met'),
               const SizedBox(width: 16),
-              _legendDot(const Color(0xFF4A90E2), 'Today'),
+              _legendDot(GlassPalette.lavender.last, 'Today'),
               const SizedBox(width: 16),
-              _legendDot(const Color(0xFF94A3B8), 'Below goal'),
+              _legendDot(
+                const Color(0xFF1A1A2E).withValues(alpha: 0.25),
+                'Below goal',
+              ),
             ],
           ),
         ],
@@ -1017,14 +1079,18 @@ class _StatsScreenState extends State<StatsScreen>
     return Row(
       children: [
         Container(
-          width: 8,
-          height: 8,
+          width: 10,
+          height: 10,
           decoration: BoxDecoration(color: color, shape: BoxShape.circle),
         ),
         const SizedBox(width: 4),
         Text(
           label,
-          style: const TextStyle(fontSize: 10, color: Color(0xFF64748B)),
+          style: const TextStyle(
+            fontSize: 10,
+            color: Color(0xFF1A1A2E),
+            fontWeight: FontWeight.w600,
+          ),
         ),
       ],
     );
@@ -1033,21 +1099,41 @@ class _StatsScreenState extends State<StatsScreen>
   // ── Screen Time Breakdown ────────────────────────────────────────────────
 
   Widget _buildScreenTimeBreakdown(int earned, int used, int remaining) {
-    return _GlassCard(
+    return PuffyGlassContainer(
+      borderRadius: 28,
       padding: const EdgeInsets.all(20),
+      shadowBlur: 22,
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Row(
             children: [
-              _iconBadge(Icons.bar_chart_rounded, const Color(0xFF4A90E2)),
+              Container(
+                padding: const EdgeInsets.all(9),
+                decoration: BoxDecoration(
+                  gradient: const LinearGradient(colors: GlassPalette.sky),
+                  borderRadius: BorderRadius.circular(12),
+                  boxShadow: [
+                    BoxShadow(
+                      color: GlassPalette.sky.last.withValues(alpha: 0.4),
+                      blurRadius: 10,
+                      offset: const Offset(0, 4),
+                    ),
+                  ],
+                ),
+                child: const Icon(
+                  Icons.bar_chart_rounded,
+                  color: Color(0xFF1A1A2E),
+                  size: 20,
+                ),
+              ),
               const SizedBox(width: 12),
               const Text(
                 'Screen Time Breakdown',
                 style: TextStyle(
-                  color: Color(0xFF1A202C),
+                  color: Color(0xFF1A1A2E),
                   fontSize: 15,
-                  fontWeight: FontWeight.bold,
+                  fontWeight: FontWeight.w800,
                 ),
               ),
             ],
@@ -1057,7 +1143,7 @@ class _StatsScreenState extends State<StatsScreen>
           // Stacked bar
           if (earned > 0) ...[
             ClipRRect(
-              borderRadius: BorderRadius.circular(8),
+              borderRadius: BorderRadius.circular(10),
               child: TweenAnimationBuilder<double>(
                 tween: Tween(begin: 0, end: _progressRatio),
                 duration: const Duration(milliseconds: 900),
@@ -1070,12 +1156,24 @@ class _StatsScreenState extends State<StatsScreen>
                         if (val > 0)
                           Flexible(
                             flex: (val * 100).round(),
-                            child: Container(color: const Color(0xFFEF4444)),
+                            child: Container(
+                              decoration: const BoxDecoration(
+                                gradient: LinearGradient(
+                                  colors: GlassPalette.rose,
+                                ),
+                              ),
+                            ),
                           ),
                         if (val < 1)
                           Flexible(
                             flex: ((1 - val) * 100).round(),
-                            child: Container(color: const Color(0xFF10B981)),
+                            child: Container(
+                              decoration: const BoxDecoration(
+                                gradient: LinearGradient(
+                                  colors: GlassPalette.mint,
+                                ),
+                              ),
+                            ),
                           ),
                       ],
                     ),
@@ -1092,7 +1190,7 @@ class _StatsScreenState extends State<StatsScreen>
                 child: _breakdownItem(
                   'Earned',
                   _formatDuration(earned),
-                  const Color(0xFF10B981),
+                  GlassPalette.mint,
                   Icons.add_circle_outline_rounded,
                 ),
               ),
@@ -1100,7 +1198,7 @@ class _StatsScreenState extends State<StatsScreen>
                 child: _breakdownItem(
                   'Used',
                   _formatDuration(used),
-                  const Color(0xFFEF4444),
+                  GlassPalette.rose,
                   Icons.remove_circle_outline_rounded,
                 ),
               ),
@@ -1108,7 +1206,7 @@ class _StatsScreenState extends State<StatsScreen>
                 child: _breakdownItem(
                   'Left',
                   _formatDuration(remaining),
-                  const Color(0xFF4A90E2),
+                  GlassPalette.sky,
                   Icons.hourglass_bottom_rounded,
                 ),
               ),
@@ -1122,19 +1220,33 @@ class _StatsScreenState extends State<StatsScreen>
   Widget _breakdownItem(
     String label,
     String value,
-    Color color,
+    List<Color> gradient,
     IconData icon,
   ) {
     return Column(
       children: [
-        Icon(icon, color: color, size: 18),
+        Container(
+          padding: const EdgeInsets.all(7),
+          decoration: BoxDecoration(
+            gradient: LinearGradient(colors: gradient),
+            shape: BoxShape.circle,
+            boxShadow: [
+              BoxShadow(
+                color: gradient.last.withValues(alpha: 0.4),
+                blurRadius: 8,
+                offset: const Offset(0, 3),
+              ),
+            ],
+          ),
+          child: Icon(icon, color: const Color(0xFF1A1A2E), size: 16),
+        ),
         const SizedBox(height: 6),
         Text(
           value,
-          style: TextStyle(
-            color: color,
+          style: const TextStyle(
+            color: Color(0xFF1A1A2E),
             fontSize: 16,
-            fontWeight: FontWeight.w800,
+            fontWeight: FontWeight.w900,
             height: 1,
           ),
         ),
@@ -1142,7 +1254,7 @@ class _StatsScreenState extends State<StatsScreen>
         Text(
           label,
           style: const TextStyle(
-            color: Color(0xFF64748B),
+            color: Color(0xFF1A1A2E),
             fontSize: 11,
             fontWeight: FontWeight.w600,
           ),
@@ -1158,45 +1270,62 @@ class _StatsScreenState extends State<StatsScreen>
     final nextMilestone = (milestonesDone + 1) * 1000;
     final stepsToNext = nextMilestone - steps;
 
-    return _GlassCard(
+    return PuffyGlassContainer(
+      borderRadius: 28,
       padding: const EdgeInsets.all(20),
+      shadowBlur: 22,
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Row(
             children: [
-              _iconBadge(Icons.star_rounded, const Color(0xFFF59E0B)),
+              Container(
+                padding: const EdgeInsets.all(9),
+                decoration: BoxDecoration(
+                  gradient: const LinearGradient(colors: GlassPalette.peach),
+                  borderRadius: BorderRadius.circular(12),
+                  boxShadow: [
+                    BoxShadow(
+                      color:
+                          GlassPalette.peach.last.withValues(alpha: 0.4),
+                      blurRadius: 10,
+                      offset: const Offset(0, 4),
+                    ),
+                  ],
+                ),
+                child: const Icon(
+                  Icons.star_rounded,
+                  color: Color(0xFF1A1A2E),
+                  size: 20,
+                ),
+              ),
               const SizedBox(width: 12),
               const Text(
                 'Reward Rate',
                 style: TextStyle(
-                  color: Color(0xFF1A202C),
+                  color: Color(0xFF1A1A2E),
                   fontSize: 15,
-                  fontWeight: FontWeight.bold,
+                  fontWeight: FontWeight.w800,
                 ),
               ),
             ],
           ),
           const SizedBox(height: 14),
-          Container(
+          PuffyGlassContainer(
+            borderRadius: 18,
+            tintColor: const Color(0xFFFFE0C2),
+            tintAlpha: 0.7,
             padding: const EdgeInsets.all(14),
-            decoration: BoxDecoration(
-              color: const Color(0xFFF59E0B).withValues(alpha: 0.06),
-              borderRadius: BorderRadius.circular(12),
-              border: Border.all(
-                color: const Color(0xFFF59E0B).withValues(alpha: 0.2),
-              ),
-            ),
             child: Row(
               mainAxisAlignment: MainAxisAlignment.spaceAround,
               children: [
-                _rateItem('1,000', 'steps', const Color(0xFF64748B)),
+                _rateItem('1,000', 'steps', const Color(0xFF1A1A2E)),
                 const Icon(
                   Icons.arrow_forward_rounded,
-                  color: Color(0xFFF59E0B),
+                  color: Color(0xFF1A1A2E),
                   size: 20,
                 ),
-                _rateItem('$minutesPer1k', 'min', const Color(0xFFF59E0B)),
+                _rateItem('$minutesPer1k', 'min', const Color(0xFF1A1A2E)),
               ],
             ),
           ),
@@ -1208,17 +1337,17 @@ class _StatsScreenState extends State<StatsScreen>
               Icon(
                 Icons.emoji_events_rounded,
                 color: milestonesDone > 0
-                    ? const Color(0xFFF59E0B)
-                    : const Color(0xFFCBD5E0),
+                    ? GlassPalette.peach.last
+                    : const Color(0xFF1A1A2E).withValues(alpha: 0.3),
                 size: 16,
               ),
               const SizedBox(width: 6),
               Text(
                 '$milestonesDone milestone${milestonesDone == 1 ? '' : 's'} earned today',
                 style: const TextStyle(
-                  color: Color(0xFF64748B),
+                  color: Color(0xFF1A1A2E),
                   fontSize: 12,
-                  fontWeight: FontWeight.w500,
+                  fontWeight: FontWeight.w600,
                 ),
               ),
             ],
@@ -1227,7 +1356,7 @@ class _StatsScreenState extends State<StatsScreen>
           Text(
             '$stepsToNext steps until next $minutesPer1k-min reward',
             style: const TextStyle(
-              color: Color(0xFF64748B),
+              color: Color(0xFF1A1A2E),
               fontSize: 12,
               fontWeight: FontWeight.w500,
             ),
@@ -1252,9 +1381,9 @@ class _StatsScreenState extends State<StatsScreen>
         Text(
           unit,
           style: const TextStyle(
-            color: Color(0xFF64748B),
+            color: Color(0xFF1A1A2E),
             fontSize: 11,
-            fontWeight: FontWeight.w600,
+            fontWeight: FontWeight.w700,
           ),
         ),
       ],
@@ -1264,21 +1393,41 @@ class _StatsScreenState extends State<StatsScreen>
   // ── Blocked Apps (with real icons) ──────────────────────────────────────
 
   Widget _buildBlockedAppsCard(Map<String, String> blockedApps) {
-    return _GlassCard(
+    return PuffyGlassContainer(
+      borderRadius: 28,
       padding: const EdgeInsets.all(20),
+      shadowBlur: 22,
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Row(
             children: [
-              _iconBadge(Icons.block_rounded, const Color(0xFFEF4444)),
+              Container(
+                padding: const EdgeInsets.all(9),
+                decoration: BoxDecoration(
+                  gradient: const LinearGradient(colors: GlassPalette.rose),
+                  borderRadius: BorderRadius.circular(12),
+                  boxShadow: [
+                    BoxShadow(
+                      color: GlassPalette.rose.last.withValues(alpha: 0.4),
+                      blurRadius: 10,
+                      offset: const Offset(0, 4),
+                    ),
+                  ],
+                ),
+                child: const Icon(
+                  Icons.block_rounded,
+                  color: Color(0xFF1A1A2E),
+                  size: 20,
+                ),
+              ),
               const SizedBox(width: 12),
               Text(
                 'Blocked Apps Usage (${blockedApps.length})',
                 style: const TextStyle(
-                  color: Color(0xFF1A202C),
+                  color: Color(0xFF1A1A2E),
                   fontSize: 15,
-                  fontWeight: FontWeight.bold,
+                  fontWeight: FontWeight.w800,
                 ),
               ),
             ],
@@ -1294,92 +1443,82 @@ class _StatsScreenState extends State<StatsScreen>
                   ? (usedMins / totalEarned).clamp(0.0, 1.0)
                   : 0.0;
 
-              return Container(
-                margin: const EdgeInsets.only(bottom: 10),
-                padding: const EdgeInsets.symmetric(
-                  horizontal: 14,
-                  vertical: 12,
-                ),
-                decoration: BoxDecoration(
-                  color: const Color(0xFFEF4444).withValues(alpha: 0.04),
-                  borderRadius: BorderRadius.circular(14),
-                  border: Border.all(
-                    color: const Color(0xFFEF4444).withValues(alpha: 0.15),
+              return Padding(
+                padding: const EdgeInsets.only(bottom: 10),
+                child: PuffyGlassContainer(
+                  borderRadius: 16,
+                  tintColor: const Color(0xFFFFD0D0),
+                  tintAlpha: 0.55,
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 14,
+                    vertical: 12,
                   ),
-                ),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Row(
-                      children: [
-                        // Real app icon using AppIconWidget
-                        AppIconWidget(
-                          packageName: pkg,
-                          size: 36,
-                          fallbackIcon: Icons.phone_android_rounded,
-                          fallbackIconColor: const Color(0xFFEF4444),
-                          fallbackBgColor: const Color(
-                            0xFFEF4444,
-                          ).withValues(alpha: 0.1),
-                        ),
-                        const SizedBox(width: 12),
-                        Expanded(
-                          child: Text(
-                            name,
-                            style: const TextStyle(
-                              color: Color(0xFF1A202C),
-                              fontSize: 14,
-                              fontWeight: FontWeight.w700,
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Row(
+                        children: [
+                          // Real app icon using AppIconWidget
+                          AppIconWidget(
+                            packageName: pkg,
+                            size: 36,
+                            fallbackIcon: Icons.phone_android_rounded,
+                            fallbackIconColor: const Color(0xFF1A1A2E),
+                            fallbackBgColor: const Color(0xFFFFD0D0),
+                          ),
+                          const SizedBox(width: 12),
+                          Expanded(
+                            child: Text(
+                              name,
+                              style: const TextStyle(
+                                color: Color(0xFF1A1A2E),
+                                fontSize: 14,
+                                fontWeight: FontWeight.w700,
+                              ),
                             ),
                           ),
-                        ),
-                        Container(
-                          padding: const EdgeInsets.symmetric(
-                            horizontal: 10,
-                            vertical: 4,
-                          ),
-                          decoration: BoxDecoration(
-                            color: Colors.white,
-                            borderRadius: BorderRadius.circular(12),
-                            border: Border.all(
-                              color: const Color(
-                                0xFFEF4444,
-                              ).withValues(alpha: 0.3),
+                          Container(
+                            padding: const EdgeInsets.symmetric(
+                              horizontal: 10,
+                              vertical: 4,
+                            ),
+                            decoration: BoxDecoration(
+                              color: Colors.white.withValues(alpha: 0.7),
+                              borderRadius: BorderRadius.circular(12),
+                            ),
+                            child: Text(
+                              '$usedMins min',
+                              style: const TextStyle(
+                                color: Color(0xFF1A1A2E),
+                                fontSize: 12,
+                                fontWeight: FontWeight.w800,
+                              ),
                             ),
                           ),
-                          child: Text(
-                            '$usedMins min',
-                            style: const TextStyle(
-                              color: Color(0xFFEF4444),
-                              fontSize: 12,
-                              fontWeight: FontWeight.w700,
+                        ],
+                      ),
+                      if (usedMins > 0) ...[
+                        const SizedBox(height: 8),
+                        ClipRRect(
+                          borderRadius: BorderRadius.circular(6),
+                          child: TweenAnimationBuilder<double>(
+                            tween: Tween(begin: 0, end: appRatio),
+                            duration: const Duration(milliseconds: 900),
+                            curve: Curves.easeOut,
+                            builder: (_, val, _) => LinearProgressIndicator(
+                              value: val,
+                              minHeight: 4,
+                              backgroundColor: const Color(0xFFFFD0D0)
+                                  .withValues(alpha: 0.4),
+                              valueColor: const AlwaysStoppedAnimation(
+                                Color(0xFFFFA8A8),
+                              ),
                             ),
                           ),
                         ),
                       ],
-                    ),
-                    if (usedMins > 0) ...[
-                      const SizedBox(height: 8),
-                      ClipRRect(
-                        borderRadius: BorderRadius.circular(4),
-                        child: TweenAnimationBuilder<double>(
-                          tween: Tween(begin: 0, end: appRatio),
-                          duration: const Duration(milliseconds: 900),
-                          curve: Curves.easeOut,
-                          builder: (_, val, _) => LinearProgressIndicator(
-                            value: val,
-                            minHeight: 4,
-                            backgroundColor: const Color(
-                              0xFFEF4444,
-                            ).withValues(alpha: 0.1),
-                            valueColor: const AlwaysStoppedAnimation(
-                              Color(0xFFEF4444),
-                            ),
-                          ),
-                        ),
-                      ),
                     ],
-                  ],
+                  ),
                 ),
               );
             }).toList(),
@@ -1392,112 +1531,80 @@ class _StatsScreenState extends State<StatsScreen>
   // ── Share Achievement Button ──────────────────────────────────────────────
 
   Widget _buildShareButton(int steps, int earned, int used, int streak) {
-    return GestureDetector(
-      onTap: _isSharing ? null : _shareProgress,
-      child: Container(
-        padding: const EdgeInsets.symmetric(vertical: 16, horizontal: 20),
-        decoration: BoxDecoration(
-          gradient: const LinearGradient(
-            colors: [Color(0xFF6366F1), Color(0xFF8B5CF6)],
-            begin: Alignment.centerLeft,
-            end: Alignment.centerRight,
-          ),
-          borderRadius: BorderRadius.circular(18),
-          boxShadow: [
-            BoxShadow(
-              color: const Color(0xFF6366F1).withValues(alpha: 0.35),
-              blurRadius: 16,
-              offset: const Offset(0, 6),
-            ),
-          ],
-        ),
-        child: Row(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: [
-            if (_isSharing)
-              const SizedBox(
-                width: 18,
-                height: 18,
-                child: CircularProgressIndicator(
-                  strokeWidth: 2.5,
-                  color: Colors.white,
-                ),
-              )
-            else
-              const Icon(
-                Icons.leaderboard_rounded,
-                color: Colors.white,
-                size: 20,
-              ),
-            const SizedBox(width: 10),
-            const Text(
-              'Share My Progress',
-              style: TextStyle(
-                color: Colors.white,
-                fontSize: 15,
-                fontWeight: FontWeight.w800,
-                letterSpacing: 0.3,
-              ),
-            ),
-            const SizedBox(width: 8),
-            const Icon(Icons.share_rounded, color: Colors.white, size: 18),
-          ],
-        ),
-      ),
+    return PuffyGlassPillButton(
+      label: _isSharing ? 'Preparing…' : 'Share My Progress',
+      icon: _isSharing ? null : Icons.leaderboard_rounded,
+      gradient: GlassPalette.lavender,
+      onPressed: _isSharing ? null : _shareProgress,
     );
   }
 
   // ── Motivational Tip ──────────────────────────────────────────────────────
 
   Widget _buildMotivationalTip(int steps, int goal) {
-    final String message;
-    final Color color;
+    final List<Color> gradient;
+    final Color textColor;
     final IconData icon;
+    final String message;
 
     if (steps >= goal) {
-      message = '🏆 Goal crushed! You escaped bedrot mode today. Amazing!';
-      color = const Color(0xFFF59E0B);
+      gradient = GlassPalette.peach;
+      textColor = const Color(0xFF1A1A2E);
       icon = Icons.emoji_events_rounded;
+      message = '🏆 Goal crushed! You escaped bedrot mode today. Amazing!';
     } else if (steps >= (goal * 0.75).toInt()) {
+      gradient = GlassPalette.mint;
+      textColor = const Color(0xFF1A1A2E);
+      icon = Icons.trending_up_rounded;
       message =
           '🔥 Almost there! Just ${_formatSteps(goal - steps)} more steps — don\'t bedrot now!';
-      color = const Color(0xFF10B981);
-      icon = Icons.trending_up_rounded;
     } else if (steps >= (goal * 0.5).toInt()) {
+      gradient = GlassPalette.mint;
+      textColor = const Color(0xFF1A1A2E);
+      icon = Icons.directions_walk_rounded;
       message =
           '💪 Halfway! Stop scrolling, start walking. Your screen time is waiting.';
-      color = const Color(0xFF10B981);
-      icon = Icons.directions_walk_rounded;
     } else if (steps >= 1000) {
+      gradient = GlassPalette.sky;
+      textColor = const Color(0xFF1A1A2E);
+      icon = Icons.directions_walk_rounded;
       message =
           '👣 Good start! ${_timeBank.minutesPer1kSteps} more minutes unlock per 1k steps. Move that body!';
-      color = const Color(0xFF4A90E2);
-      icon = Icons.directions_walk_rounded;
     } else {
+      gradient = GlassPalette.sky;
+      textColor = const Color(0xFF1A1A2E);
+      icon = Icons.play_arrow_rounded;
       message =
           '📵 No bedrotting! Walk your first 1,000 steps to earn your screen time.';
-      color = const Color(0xFF4A90E2);
-      icon = Icons.play_arrow_rounded;
     }
 
-    return Container(
+    return PuffyGlassContainer(
+      borderRadius: 22,
+      gradient: gradient,
+      tintAlpha: 0.0,
+      borderAlpha: 0.6,
+      highlightAlpha: 0.55,
+      shadowBlur: 22,
+      shadowOffset: const Offset(0, 12),
       padding: const EdgeInsets.all(16),
-      decoration: BoxDecoration(
-        color: color.withValues(alpha: 0.08),
-        borderRadius: BorderRadius.circular(16),
-        border: Border.all(color: color.withValues(alpha: 0.2)),
-      ),
       child: Row(
         children: [
-          Icon(icon, color: color, size: 26),
+          Container(
+            padding: const EdgeInsets.all(10),
+            decoration: BoxDecoration(
+              color: Colors.white.withValues(alpha: 0.6),
+              shape: BoxShape.circle,
+            ),
+            child: Icon(icon, color: textColor, size: 22),
+          ),
           const SizedBox(width: 12),
           Expanded(
             child: Text(
               message,
               style: TextStyle(
-                color: color,
+                color: textColor,
                 fontSize: 13,
-                fontWeight: FontWeight.w600,
+                fontWeight: FontWeight.w700,
                 height: 1.4,
               ),
             ),
@@ -1509,32 +1616,17 @@ class _StatsScreenState extends State<StatsScreen>
 
   // ── Shared helpers ────────────────────────────────────────────────────────
 
-  Widget _iconBadge(IconData icon, Color color) {
-    return Container(
-      padding: const EdgeInsets.all(8),
-      decoration: BoxDecoration(
-        color: color.withValues(alpha: 0.12),
-        borderRadius: BorderRadius.circular(10),
-      ),
-      child: Icon(icon, color: color, size: 18),
-    );
-  }
-
   Widget _errorBanner(String message) {
-    return Container(
+    return PuffyGlassContainer(
+      borderRadius: 18,
+      tintColor: const Color(0xFFFFD0D0),
+      tintAlpha: 0.7,
       padding: const EdgeInsets.all(14),
-      decoration: BoxDecoration(
-        color: const Color(0xFFEF4444).withValues(alpha: 0.08),
-        borderRadius: BorderRadius.circular(14),
-        border: Border.all(
-          color: const Color(0xFFEF4444).withValues(alpha: 0.3),
-        ),
-      ),
       child: Row(
         children: [
           const Icon(
             Icons.warning_amber_rounded,
-            color: Color(0xFFEF4444),
+            color: Color(0xFF1A1A2E),
             size: 18,
           ),
           const SizedBox(width: 10),
@@ -1542,9 +1634,9 @@ class _StatsScreenState extends State<StatsScreen>
             child: Text(
               message,
               style: const TextStyle(
-                color: Color(0xFFEF4444),
+                color: Color(0xFF1A1A2E),
                 fontSize: 13,
-                fontWeight: FontWeight.w500,
+                fontWeight: FontWeight.w700,
               ),
             ),
           ),
@@ -1554,7 +1646,7 @@ class _StatsScreenState extends State<StatsScreen>
   }
 }
 
-// ── Day data helper ───────────────────────────────────────────────────────────
+// ── Day data helper ─────────────────────────────────────────────────────────
 
 class _DayData {
   final String label;
@@ -1594,22 +1686,14 @@ class _ShareStatCard extends StatelessWidget {
     final pct = ((steps / goal) * 100).clamp(0, 100).toInt();
     final date = DateFormat('MMM d, yyyy').format(DateTime.now());
     return Container(
-      decoration: BoxDecoration(
-        gradient: const LinearGradient(
-          colors: [Color(0xFF0F172A), Color(0xFF1E1B4B)],
-          begin: Alignment.topLeft,
-          end: Alignment.bottomRight,
-        ),
-        borderRadius: BorderRadius.circular(28),
-        border: Border.all(
-          color: const Color(0xFF6366F1).withValues(alpha: 0.4),
-          width: 1.5,
-        ),
+      decoration: const BoxDecoration(
+        gradient: LinearGradient(colors: GlassPalette.lavender),
+        borderRadius: BorderRadius.all(Radius.circular(28)),
         boxShadow: [
           BoxShadow(
-            color: const Color(0xFF6366F1).withValues(alpha: 0.3),
+            color: Color(0x55000000),
             blurRadius: 30,
-            spreadRadius: 2,
+            offset: Offset(0, 14),
           ),
         ],
       ),
@@ -1623,8 +1707,8 @@ class _ShareStatCard extends StatelessWidget {
               Container(
                 padding: const EdgeInsets.all(10),
                 decoration: BoxDecoration(
-                  color: const Color(0xFF6366F1).withValues(alpha: 0.2),
-                  borderRadius: BorderRadius.circular(12),
+                  color: Colors.white.withValues(alpha: 0.6),
+                  borderRadius: BorderRadius.circular(14),
                 ),
                 child: const Text('🏃', style: TextStyle(fontSize: 20)),
               ),
@@ -1635,7 +1719,7 @@ class _ShareStatCard extends StatelessWidget {
                   const Text(
                     'FRAVO',
                     style: TextStyle(
-                      color: Color(0xFF6366F1),
+                      color: Color(0xFF1A1A2E),
                       fontSize: 13,
                       fontWeight: FontWeight.w900,
                       letterSpacing: 3,
@@ -1643,8 +1727,8 @@ class _ShareStatCard extends StatelessWidget {
                   ),
                   Text(
                     date,
-                    style: TextStyle(
-                      color: Colors.white.withValues(alpha: 0.5),
+                    style: const TextStyle(
+                      color: Color(0xFF1A1A2E),
                       fontSize: 11,
                     ),
                   ),
@@ -1658,18 +1742,15 @@ class _ShareStatCard extends StatelessWidget {
                     vertical: 6,
                   ),
                   decoration: BoxDecoration(
-                    color: const Color(0xFFF59E0B).withValues(alpha: 0.15),
-                    borderRadius: BorderRadius.circular(10),
-                    border: Border.all(
-                      color: const Color(0xFFF59E0B).withValues(alpha: 0.4),
-                    ),
+                    color: Colors.white.withValues(alpha: 0.6),
+                    borderRadius: BorderRadius.circular(12),
                   ),
                   child: Text(
                     '🔥 $streak day streak',
                     style: const TextStyle(
-                      color: Color(0xFFF59E0B),
+                      color: Color(0xFF1A1A2E),
                       fontSize: 11,
-                      fontWeight: FontWeight.bold,
+                      fontWeight: FontWeight.w800,
                     ),
                   ),
                 ),
@@ -1686,7 +1767,7 @@ class _ShareStatCard extends StatelessWidget {
                       ? '${(steps / 1000).toStringAsFixed(1)}k'
                       : '$steps',
                   style: const TextStyle(
-                    color: Colors.white,
+                    color: Color(0xFF1A1A2E),
                     fontSize: 52,
                     fontWeight: FontWeight.w900,
                     height: 1,
@@ -1695,9 +1776,9 @@ class _ShareStatCard extends StatelessWidget {
                 const TextSpan(
                   text: '  steps today',
                   style: TextStyle(
-                    color: Color(0xFF94A3B8),
+                    color: Color(0xFF1A1A2E),
                     fontSize: 16,
-                    fontWeight: FontWeight.w500,
+                    fontWeight: FontWeight.w700,
                   ),
                 ),
               ],
@@ -1707,9 +1788,9 @@ class _ShareStatCard extends StatelessWidget {
           Text(
             '$pct% of daily goal',
             style: const TextStyle(
-              color: Color(0xFF6366F1),
+              color: Color(0xFF1A1A2E),
               fontSize: 14,
-              fontWeight: FontWeight.w600,
+              fontWeight: FontWeight.w800,
             ),
           ),
           const SizedBox(height: 20),
@@ -1730,18 +1811,17 @@ class _ShareStatCard extends StatelessWidget {
           Container(
             padding: const EdgeInsets.all(14),
             decoration: BoxDecoration(
-              color: Colors.white.withValues(alpha: 0.05),
-              borderRadius: BorderRadius.circular(14),
-              border: Border.all(color: Colors.white.withValues(alpha: 0.1)),
+              color: Colors.white.withValues(alpha: 0.55),
+              borderRadius: BorderRadius.circular(16),
             ),
             child: const Text(
               '"I traded my steps for screen time — no bedrotting today! 🏃📵"',
               style: TextStyle(
-                color: Colors.white,
+                color: Color(0xFF1A1A2E),
                 fontSize: 13,
                 fontStyle: FontStyle.italic,
                 height: 1.5,
-                fontWeight: FontWeight.w500,
+                fontWeight: FontWeight.w700,
               ),
             ),
           ),
@@ -1755,9 +1835,8 @@ class _ShareStatCard extends StatelessWidget {
       child: Container(
         padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 10),
         decoration: BoxDecoration(
-          color: Colors.white.withValues(alpha: 0.06),
-          borderRadius: BorderRadius.circular(12),
-          border: Border.all(color: Colors.white.withValues(alpha: 0.1)),
+          color: Colors.white.withValues(alpha: 0.55),
+          borderRadius: BorderRadius.circular(14),
         ),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
@@ -1767,57 +1846,20 @@ class _ShareStatCard extends StatelessWidget {
             Text(
               value,
               style: const TextStyle(
-                color: Colors.white,
+                color: Color(0xFF1A1A2E),
                 fontSize: 13,
-                fontWeight: FontWeight.w800,
+                fontWeight: FontWeight.w900,
               ),
             ),
             Text(
               label,
-              style: TextStyle(
-                color: Colors.white.withValues(alpha: 0.5),
+              style: const TextStyle(
+                color: Color(0xFF1A1A2E),
                 fontSize: 10,
+                fontWeight: FontWeight.w700,
               ),
             ),
           ],
-        ),
-      ),
-    );
-  }
-}
-
-// ── Shared glass card widget ──────────────────────────────────────────────────
-
-class _GlassCard extends StatelessWidget {
-  final Widget child;
-  final EdgeInsetsGeometry? padding;
-
-  const _GlassCard({required this.child, this.padding});
-
-  @override
-  Widget build(BuildContext context) {
-    return ClipRRect(
-      borderRadius: BorderRadius.circular(22),
-      child: BackdropFilter(
-        filter: ImageFilter.blur(sigmaX: 20, sigmaY: 20),
-        child: Container(
-          padding: padding ?? const EdgeInsets.all(20),
-          decoration: BoxDecoration(
-            color: Colors.white.withValues(alpha: 0.55),
-            borderRadius: BorderRadius.circular(22),
-            border: Border.all(
-              color: Colors.white.withValues(alpha: 0.8),
-              width: 1.5,
-            ),
-            boxShadow: [
-              BoxShadow(
-                color: Colors.black.withValues(alpha: 0.05),
-                blurRadius: 20,
-                offset: const Offset(0, 8),
-              ),
-            ],
-          ),
-          child: child,
         ),
       ),
     );

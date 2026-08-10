@@ -20,8 +20,11 @@ import io.flutter.embedding.android.FlutterView
  *
  * Design principles:
  * - Single source of truth: [isOverlayVisible] is THE authoritative flag for overlay state.
- * - No stale view reuse: FlutterView is always freshly created on each show, while the
- *   engine is kept alive between shows for fast re-display.
+ * - No stale view reuse: FlutterView is always freshly created on each show.
+ * - Lazy engine: the engine is started only when the first block event fires
+ *   (never pre-warmed at service start), so no Flutter isolate sits in the
+ *   background when nothing is blocked. It is torn down after a short idle
+ *   window once the overlay is dismissed.
  * - Instant display: overlay is shown immediately; app icon is sent asynchronously.
  * - Thread-safe: all WindowManager operations happen on the main thread via [handler].
  */
@@ -32,6 +35,15 @@ class FlutterOverlayManager(private val context: Context) {
     private val windowManager = context.getSystemService(Context.WINDOW_SERVICE) as WindowManager
     private val prefsManager = PreferencesManager(context)
     private val handler = Handler(Looper.getMainLooper())
+
+    /**
+     * How long the engine stays alive after the last overlay is dismissed.
+     * After this idle window the engine is destroyed so the app does not keep a
+     * full Flutter isolate running in the background. It is re-created lazily
+     * on the next block event.
+     */
+    private val ENGINE_IDLE_TEARDOWN_MS = 60_000L
+    private val engineTeardownRunnable = Runnable { destroyEngine() }
 
     /**
      * The single, authoritative flag for whether the overlay is currently on screen.
@@ -55,16 +67,6 @@ class FlutterOverlayManager(private val context: Context) {
     // ------------------------------------------------------------------------
     // Engine lifecycle
     // ------------------------------------------------------------------------
-
-    /**
-     * Pre-warm the FlutterEngine so it's ready when the first block event fires.
-     * Call this from onServiceConnected, NOT from showOverlay, to eliminate startup lag.
-     */
-    fun preWarmEngine() {
-        if (engine == null && prefsManager.hasBlockScreenCallback()) {
-            handler.post { startEngine() }
-        }
-    }
 
     /**
      * Start the FlutterEngine using the saved Dart callback handle.
@@ -155,6 +157,10 @@ class FlutterOverlayManager(private val context: Context) {
         currentBlockedPackage = packageName
 
         handler.post {
+            // A block screen is coming up — cancel any pending idle teardown so
+            // a quick re-block after dismiss reuses the still-warm engine.
+            handler.removeCallbacks(engineTeardownRunnable)
+
             // Ensure engine is started (no-op if already running).
             if (engine == null) startEngine()
 
@@ -214,6 +220,11 @@ class FlutterOverlayManager(private val context: Context) {
         handler.post {
             removeFlutterViewFromWindow()
             engine?.lifecycleChannel?.appIsPaused()
+
+            // Free the background engine after a short idle window so the app
+            // is not kept "active in background" once the block screen is gone.
+            handler.removeCallbacks(engineTeardownRunnable)
+            handler.postDelayed(engineTeardownRunnable, ENGINE_IDLE_TEARDOWN_MS)
         }
     }
 
@@ -294,14 +305,25 @@ class FlutterOverlayManager(private val context: Context) {
      */
     fun destroy() {
         isOverlayVisible = false
+        currentBlockedPackage = null
+        handler.removeCallbacks(engineTeardownRunnable)
         handler.post {
-            removeFlutterViewFromWindow()
-            channel?.setMethodCallHandler(null)
-            channel = null
-            engine?.destroy()
-            engine = null
-            isEngineReady = false
-            pendingBlockData = null
+            destroyEngine()
         }
+    }
+
+    /**
+     * Fully tears down the engine (and any attached view). Safe to call from
+     * the main thread only; must be idempotent because it is shared by the
+     * idle teardown runnable and [destroy].
+     */
+    private fun destroyEngine() {
+        removeFlutterViewFromWindow()
+        channel?.setMethodCallHandler(null)
+        channel = null
+        engine?.destroy()
+        engine = null
+        isEngineReady = false
+        pendingBlockData = null
     }
 }

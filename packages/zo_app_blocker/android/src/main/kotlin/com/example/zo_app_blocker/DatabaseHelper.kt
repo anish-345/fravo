@@ -197,17 +197,10 @@ class DatabaseHelper(context: Context) : SQLiteOpenHelper(
     fun setAppTimeLimit(packageName: String, limitSeconds: Long) {
         val today = todayString()
         val db = this.writableDatabase
-        val existing = getAppTimeLimit(packageName)
-        val existingUsed = if (existing != null && existing["lastResetDate"] == today) {
-            (existing["usedSeconds"] as? Long) ?: 0L
-        } else {
-            0L
-        }
-
         val values = ContentValues().apply {
             put(COLUMN_TL_PACKAGE, packageName)
             put(COLUMN_TL_LIMIT_SECONDS, limitSeconds)
-            put(COLUMN_TL_USED_SECONDS, existingUsed)
+            put(COLUMN_TL_USED_SECONDS, 0L)
             put(COLUMN_TL_LAST_RESET, today)
         }
         db.replace(TABLE_TIME_LIMITS, null, values)

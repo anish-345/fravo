@@ -115,7 +115,12 @@ class AppBlockerForegroundService : Service() {
         flutterOverlayManager = FlutterOverlayManager(this)
 
         createNotificationChannel()
-        flutterOverlayManager.preWarmEngine()
+        // NOTE: The Flutter block-screen engine is intentionally NOT pre-warmed
+        // here. Pre-warming boots the whole Flutter app into the background and
+        // keeps it alive 24/7. Instead, FlutterOverlayManager starts the engine
+        // lazily the first time an app is actually blocked, and tears it down
+        // after a short idle window. The timer notification is pure native code
+        // and never needs the Flutter engine.
 
         // Register screen on/off receiver.
         // These are not sticky — must be registered dynamically, not in manifest.

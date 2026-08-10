@@ -162,34 +162,49 @@ class BlockerService {
   /// Prevents concurrent evaluations from double-counting usage.
   bool _isEvaluating = false;
 
-  /// Tracks which earned-minutes value we last programmed into the native
-  /// trip-wire. Persisted in Hive so app restarts don't re-arm the timer.
+  /// Tracks which *remaining-minutes* value we last programmed into the native
+  /// trip-wire. Persisted in Hive so app restarts don't re-arm unnecessarily.
   /// -1 = never set (forces first-run setup).
-  static const String _lastSetEarnedKey = 'lastSetEarnedMinutes';
+  ///
+  /// Using *remaining* (not earned) catches the common case where the user
+  /// has been using a blocked app between poll cycles — the earned budget
+  /// hasn't changed, but the remaining window has shrunk, so we need to
+  /// re-arm with the correct new remaining value.
+  static const String _lastSetEarnedKey = 'lastSetEarnedMinutes'; // kept for compat
 
-  static bool shouldArmNativeLimit({
-    required int earnedMinutes,
-    required int lastSetEarnedMinutes,
-    required bool forceRearm,
-  }) {
-    if (forceRearm) return true;
-    return earnedMinutes != lastSetEarnedMinutes;
-  }
-
-  int get _lastSetEarnedMinutes {
+  int get _lastSetRemainingMinutes {
     final box = Hive.box('time_bank');
+    // Prefer new key; fall back to old earned key for upgrade path.
+    final v = box.get(TimeBankService.lastSetRemainingMinutesKey) as int?;
+    if (v != null) return v;
     return (box.get(_lastSetEarnedKey) as int?) ?? -1;
   }
 
-  Future<void> _saveLastSetEarned(int value) async {
+  Future<void> _saveLastSetRemaining(int value) async {
     final box = Hive.box('time_bank');
-    await box.put(_lastSetEarnedKey, value);
+    await box.put(TimeBankService.lastSetRemainingMinutesKey, value);
+  }
+
+  static bool shouldArmNativeLimit({
+    required int remaining,
+    required int lastSetRemainingMinutes,
+    required bool forceRearm,
+  }) {
+    if (forceRearm) return true;
+    if (lastSetRemainingMinutes < 0) return true; // never set
+    // Re-arm if remaining has changed by ≥1 minute since we last set it.
+    // This covers:
+    //   • User walked more → earned more → remaining grew
+    //   • User used apps between cycles → remaining shrank
+    //   • App list changed or daily reset
+    return (remaining - lastSetRemainingMinutes).abs() >= 1;
   }
 
   /// Call this whenever the blocked-app list changes or a daily reset happens,
   /// so the new apps receive proper native limits on the next evaluation.
   void resetLastSetEarned() {
     Hive.box('time_bank').put(_lastSetEarnedKey, -1);
+    Hive.box('time_bank').put(TimeBankService.lastSetRemainingMinutesKey, -1);
   }
 
   // ─────────────────────────────────────────────────────────────────────────
@@ -273,7 +288,7 @@ class BlockerService {
         // Clear the trip-wire record so that when the user earns new minutes
         // (budget goes from exhausted → positive), setAppTimeLimit is re-armed
         // from the correct remaining value at that moment.
-        await _saveLastSetEarned(-1);
+        await _saveLastSetRemaining(-1);
       } else {
         // ── Budget available: unblock and arm the native trip-wire ─────────────
         debugPrint(
@@ -285,25 +300,19 @@ class BlockerService {
           debugPrint('unblockAll error: $e');
         }
 
-        // Update native trip-wire ONLY when earned budget changes or forced (e.g. at startup/app changes).
-        // This prevents resetting the OS countdown timer every 30 s cycle.
-        //
-        // The trip-wire is set to (earned - used) at this exact moment so
-        // the OS timer starts from the correct remaining time — not from
-        // the full earned budget or any other random value.
+        // Update native trip-wire ONLY when remaining budget changes significantly
+        // (≥1 min). Using *remaining* rather than *earned* catches the case where
+        // the user used apps between cycles without us knowing (earned stays the
+        // same but remaining has shrunk).
+        final remaining = (earned - used).clamp(1, earned);
         if (shouldArmNativeLimit(
-          earnedMinutes: earned,
-          lastSetEarnedMinutes: _lastSetEarnedMinutes,
+          remaining: remaining,
+          lastSetRemainingMinutes: _lastSetRemainingMinutes,
           forceRearm: forceRearm,
         )) {
-          // Snapshot used NOW so the timer starts from the correct remaining
-          // value at this exact moment (not a stale value from a prior cycle).
-          final remaining = (earned - used).clamp(1, earned);
           debugPrint(
-            'BlockerService: earned changed $earned min '
-            '(was $_lastSetEarnedMinutes) '
-            '→ setting native trip-wire to $remaining min '
-            '(used=$used at set time).',
+            'BlockerService: remaining changed $remaining min '
+            '(was $_lastSetRemainingMinutes) → setting native trip-wire.',
           );
 
           final List<String> updatedPkgs = [];
@@ -327,8 +336,25 @@ class BlockerService {
             // Zero our baseline so the next delta-sync starts from 0.
             await TimeBankService.instance.resetNativeBaseline(updatedPkgs);
           }
-          // Record the earned value so we don't re-arm on every 30s tick.
-          await _saveLastSetEarned(earned);
+          // Record remaining so we don't re-arm on every 5s tick.
+          await _saveLastSetRemaining(remaining);
+
+          // ── Update foreground-service notification with accurate remaining ──
+          // This keeps the persistent notification's description in sync with
+          // the actual budget, not just the initial "Monitoring screen time" text.
+          try {
+            final hrs = remaining ~/ 60;
+            final mins = remaining % 60;
+            final timeStr = hrs > 0 ? '${hrs}h ${mins}m left today' : '${mins}m left today';
+            await _blocker.setNotificationConfig(
+              notificationBannerTitle: 'Fravo — Screen Time Active',
+              notificationBannerDescription:
+                  '${targets.length} app${targets.length == 1 ? '' : 's'} monitored · $timeStr',
+              notificationIcon: 'ic_notification',
+            );
+          } catch (e) {
+            debugPrint('setNotificationConfig update error: $e');
+          }
         }
       }
     } catch (e) {

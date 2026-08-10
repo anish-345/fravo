@@ -6,7 +6,6 @@ import android.app.usage.UsageEvents
 import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
-import android.os.Build
 import android.provider.Settings
 import android.text.TextUtils
 import android.util.Log
@@ -34,27 +33,12 @@ class BootAndRestartReceiver : BroadcastReceiver() {
             "android.intent.action.QUICKBOOT_POWERON",
             "com.htc.intent.action.QUICKBOOT_POWERON" -> {
                 checkAccessibilityServiceEnabled(context)
-                startForegroundService(context)
+                // NOTE: ForegroundService intentionally NOT started here.
+                // Blocking is fully event-driven via AppBlockerAccessibilityService
+                // (TYPE_WINDOW_STATE_CHANGED). The accessibility service auto-starts
+                // if enabled in system settings — no manual service launch needed.
                 killRunningBlockedApps(context)
             }
-        }
-    }
-
-    /**
-     * Starts the AppBlockerForegroundService so blocking is active immediately
-     * after boot — before Flutter has a chance to run.
-     */
-    private fun startForegroundService(context: Context) {
-        try {
-            val svcIntent = Intent(context, com.example.zo_app_blocker.AppBlockerForegroundService::class.java)
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-                context.startForegroundService(svcIntent)
-            } else {
-                context.startService(svcIntent)
-            }
-            Log.i(TAG, "Started AppBlockerForegroundService after boot")
-        } catch (e: Exception) {
-            Log.w(TAG, "startForegroundService error: ${e.message}")
         }
     }
 

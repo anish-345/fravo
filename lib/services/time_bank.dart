@@ -98,6 +98,11 @@ class TimeBankService {
   /// Emergency snooze: tracks active emergency pass expiry timestamp (ms).
   static const String _emergencyPassExpiryKey = 'emergencyPassExpiry';
 
+  /// Tracks the last remaining-minutes value we armed the native trip-wire to.
+  /// -1 = never set (forces first-run setup). Used in BlockerService to avoid
+  /// re-arming the native OS timer every 5s cycle.
+  static const String lastSetRemainingMinutesKey = 'lastSetRemainingMinutes';
+
   Box<dynamic>? _box;
 
   // ── Initialisation ────────────────────────────────────────────────────────
@@ -210,6 +215,15 @@ class TimeBankService {
     final emergencyBonus = _emergencyPassActiveMinutes;
     return (earnedMinutes - usedMinutes + emergencyBonus).clamp(
         0, (earnedMinutes + emergencyBonus) > 0 ? (earnedMinutes + emergencyBonus) : 0);
+  }
+
+  /// Remaining screen time in **seconds** — more precise than [remainingScreenTime].
+  /// Used by the dashboard countdown to show sub-minute resolution.
+  int get remainingScreenTimeSeconds {
+    final emergencyBonusSec = _emergencyPassActiveMinutes * 60;
+    final earnedSec = earnedMinutes * 60;
+    return (earnedSec - usedSecondsTotal + emergencyBonusSec).clamp(
+        0, (earnedSec + emergencyBonusSec) > 0 ? (earnedSec + emergencyBonusSec) : 0);
   }
 
   /// Map of packageName -> usedMinutes consumed per blocked application today.
@@ -503,9 +517,13 @@ class TimeBankService {
       // 0 until the user actually walks).
       await _box?.put(_lastStepsDayKey, '');
       await _box?.put(_usedMinutesKey, 0);
+      // Also clear second-precision key so yesterday's seconds don't bleed in.
+      await _box?.put(_usedSecondsKey, 0);
       await _box?.put(_perAppUsedMinutesKey, jsonEncode({}));
       await _saveNativeBaseline({});
       await _box?.put(_lastResetDayKey, today);
+      // Reset both native-limit tracking keys so BlockerService re-arms fresh.
+      await _box?.put(lastSetRemainingMinutesKey, -1);
       // Reset the earned-minutes guard in BlockerService so that
       // setAppTimeLimit is re-programmed with the fresh budget on the new day.
       // Import is avoided via a late reference resolved at call-time.

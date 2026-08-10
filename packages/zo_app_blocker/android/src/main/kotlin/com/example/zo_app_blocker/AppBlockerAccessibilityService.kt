@@ -4,13 +4,17 @@ import android.accessibilityservice.AccessibilityService
 import android.accessibilityservice.AccessibilityServiceInfo
 import android.app.NotificationChannel
 import android.app.NotificationManager
+import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
+import android.content.IntentFilter
 import android.graphics.Color
 import android.graphics.PixelFormat
 import android.os.Build
+import android.os.CountDownTimer
 import android.os.Handler
 import android.os.Looper
+import android.os.PowerManager
 import android.provider.Settings
 import android.text.TextUtils
 import android.util.Log
@@ -95,32 +99,95 @@ class AppBlockerAccessibilityService : AccessibilityService() {
     private var sessionElapsedSeconds: Long = 0L
     private var lastCheckedDate: String = todayString()
 
-    private val timedCheckRunnable = object : Runnable {
-        override fun run() {
-            val pkg = activeTimedPackage ?: run {
-                cancelTimerNotification()
-                return
-            }
-            val timeLimitInfo = prefsManager.getAppTimeLimit(pkg)
-            if (timeLimitInfo != null) {
-                val limitSeconds = timeLimitInfo["dailyLimitSeconds"] as? Long ?: 0L
-                val usedSeconds = timeLimitInfo["usedSeconds"] as? Long ?: 0L
-                val elapsedSec = ((System.currentTimeMillis() - sessionStartMs) / 1000L).coerceAtLeast(0L)
-                val totalUsed = usedSeconds + elapsedSec
-                val remainingSec = (limitSeconds - totalUsed).coerceAtLeast(0L)
+    // ── Event-driven countdown timer ──────────────────────────────────────────
+    // Uses Android's CountDownTimer for a clean, event-driven countdown instead
+    // of a manual 1-second polling loop. The timer is created once when a timed
+    // app opens, ticks natively via onTick, and self-destructs on finish — no
+    // manual re-scheduling, no handler overhead, zero CPU burn between ticks.
+    private var activeCountDownTimer: CountDownTimer? = null
 
-                if (totalUsed >= limitSeconds) {
+    // ── Screen state receiver (Screen Lock / Screen Off handling) ─────────────
+    private val screenStateReceiver = object : BroadcastReceiver() {
+        override fun onReceive(context: Context?, intent: Intent?) {
+            when (intent?.action) {
+                Intent.ACTION_SCREEN_OFF -> {
+                    Log.i(TAG, "Screen turned OFF / Locked — flushing active session and pausing timer.")
                     flushActiveSessionTo(prefsManager)
-                    ensureAppIsBlocked(pkg, prefsManager)
-                    showOverlayForPackage(pkg)
-                    cancelTimerNotification()
-                    return
-                } else {
-                    updateActiveTimerNotification(pkg, remainingSec)
+                }
+                Intent.ACTION_USER_PRESENT, Intent.ACTION_SCREEN_ON -> {
+                    Log.i(TAG, "Screen turned ON / Unlocked — re-checking foreground app.")
+                    handler.postDelayed({
+                        checkCurrentForegroundApp()
+                    }, 300)
                 }
             }
-            handler.postDelayed(this, 1000L)
         }
+    }
+
+    private fun isScreenInteractive(): Boolean {
+        return try {
+            val pm = getSystemService(Context.POWER_SERVICE) as? PowerManager
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.KITKAT_WATCH) {
+                pm?.isInteractive == true
+            } else {
+                @Suppress("DEPRECATION")
+                pm?.isScreenOn == true
+            }
+        } catch (_: Exception) {
+            true
+        }
+    }
+
+    /**
+     * Starts an event-driven countdown for [packageName].
+     * Reads remaining budget from SQLite, creates a CountDownTimer, and
+     * updates the notification on each tick. When the timer finishes, the
+     * app is blocked and the overlay is shown.
+     */
+    private fun startCountdownForApp(packageName: String) {
+        cancelActiveCountdown()
+        if (!isScreenInteractive()) {
+            Log.i(TAG, "startCountdownForApp: screen is off/locked — skipping timer start for $packageName.")
+            return
+        }
+        val timeLimitInfo = prefsManager.getAppTimeLimit(packageName) ?: return
+        val limitSeconds = timeLimitInfo["dailyLimitSeconds"] as? Long ?: return
+        val usedSeconds = timeLimitInfo["usedSeconds"] as? Long ?: return
+        val elapsedSec = ((System.currentTimeMillis() - sessionStartMs) / 1000L).coerceAtLeast(0L)
+        val remainingMs = ((limitSeconds - usedSeconds - elapsedSec) * 1000L).coerceAtLeast(0L)
+
+        if (remainingMs <= 0L) {
+            // Already exhausted at the moment of opening — block immediately
+            Log.i(TAG, "startCountdownForApp: $packageName already exhausted, blocking now.")
+            flushActiveSessionTo(prefsManager)
+            ensureAppIsBlocked(packageName, prefsManager)
+            showOverlayForPackage(packageName)
+            return
+        }
+
+        activeCountDownTimer = object : CountDownTimer(remainingMs, 1000L) {
+            override fun onTick(millisUntilFinished: Long) {
+                val remainingSec = (millisUntilFinished / 1000L).coerceAtLeast(0L)
+                updateActiveTimerNotification(packageName, remainingSec)
+            }
+
+            override fun onFinish() {
+                // Time's up — flush session, enforce block, show overlay
+                Log.i(TAG, "CountDownTimer finished for $packageName — budget exhausted.")
+                flushActiveSessionTo(prefsManager)
+                ensureAppIsBlocked(packageName, prefsManager)
+                showOverlayForPackage(packageName)
+                cancelTimerNotification()
+            }
+        }.start()
+
+        // Show initial notification immediately (don't wait for first tick)
+        updateActiveTimerNotification(packageName, (remainingMs / 1000L))
+    }
+
+    private fun cancelActiveCountdown() {
+        activeCountDownTimer?.cancel()
+        activeCountDownTimer = null
     }
 
     override fun onServiceConnected() {
@@ -129,7 +196,9 @@ class AppBlockerAccessibilityService : AccessibilityService() {
         prefsManager = PreferencesManager(this)
         windowManager = getSystemService(Context.WINDOW_SERVICE) as WindowManager
         flutterOverlayManager = FlutterOverlayManager(this)
-        flutterOverlayManager.preWarmEngine()
+        // NOTE: The Flutter block-screen engine is intentionally NOT pre-warmed
+        // here. The engine starts lazily on the first block event instead, so
+        // the app doesn't sit in the background with a full Flutter isolate running.
 
         Log.i(TAG, "AppBlockerAccessibilityService connected successfully.")
 
@@ -138,6 +207,18 @@ class AppBlockerAccessibilityService : AccessibilityService() {
         info.feedbackType = AccessibilityServiceInfo.FEEDBACK_GENERIC
         info.notificationTimeout = 100
         this.serviceInfo = info
+
+        // Register screen lock / screen off receiver
+        val filter = IntentFilter().apply {
+            addAction(Intent.ACTION_SCREEN_OFF)
+            addAction(Intent.ACTION_SCREEN_ON)
+            addAction(Intent.ACTION_USER_PRESENT)
+        }
+        try {
+            registerReceiver(screenStateReceiver, filter)
+        } catch (e: Exception) {
+            Log.e(TAG, "Error registering screenStateReceiver: ${e.message}")
+        }
 
         // Re-evaluate and enforce any exhausted time-limit apps immediately on boot,
         // without requiring Flutter to be opened. The SQLite database persists all
@@ -193,14 +274,21 @@ class AppBlockerAccessibilityService : AccessibilityService() {
             handleMidnightReset(prefsManager, today)
         }
 
-        // Ignore system packages, launcher, or our own app
-        if (currentPkg == "com.android.systemui" || currentPkg == this.packageName || isLauncherPackage(currentPkg)) {
-            if (activeTimedPackage != null && currentPkg != activeTimedPackage) {
-                flushActiveSessionTo(prefsManager)
-            }
+        // Transient system windows (Status Bar, Notification Shade, Keyboard, Permission Dialogs, Fravo)
+        // should NEVER flush an active timed app session or cancel timer notifications when they appear!
+        if (isTransientSystemPackage(currentPkg)) {
             if (currentPkg != this.packageName) {
                 lastPackage = currentPkg
             }
+            return
+        }
+
+        // If user went Home (launcher), end the active timed session
+        if (isLauncherPackage(currentPkg)) {
+            if (activeTimedPackage != null) {
+                flushActiveSessionTo(prefsManager)
+            }
+            lastPackage = currentPkg
             return
         }
 
@@ -238,13 +326,16 @@ class AppBlockerAccessibilityService : AccessibilityService() {
                 activeTimedPackage = currentPkg
                 sessionStartMs = System.currentTimeMillis()
                 sessionElapsedSeconds = 0L
-                handler.removeCallbacks(timedCheckRunnable)
-                handler.postDelayed(timedCheckRunnable, 2000L)
+                // Start event-driven countdown — no polling loop needed
+                startCountdownForApp(currentPkg)
                 // Instantly notify Flutter to sync steps + usage
                 ZoAppBlockerPlugin.onAppOpened(currentPkg)
             }
         } else {
-            if (activeTimedPackage != null) {
+            // Package is not in time limits.
+            // Only flush active session if currentPkg is an actual launchable main app,
+            // NOT an unmonitored system helper component or sub-activity.
+            if (activeTimedPackage != null && isLaunchableApp(currentPkg)) {
                 flushActiveSessionTo(prefsManager)
             }
             checkCurrentForegroundApp(currentPkg)
@@ -256,6 +347,10 @@ class AppBlockerAccessibilityService : AccessibilityService() {
     }
 
     override fun onDestroy() {
+        try {
+            unregisterReceiver(screenStateReceiver)
+        } catch (_: Exception) {}
+        cancelActiveCountdown()
         flushActiveSessionTo(prefsManager)
         removeOverlay()
         flutterOverlayManager.destroy()
@@ -456,6 +551,20 @@ class AppBlockerAccessibilityService : AccessibilityService() {
         }
     }
 
+    /**
+     * Called when Flutter updates the daily time limit for [packageName] while
+     * the user is actively using that app. Seamlessly updates the active countdown
+     * with the new budget.
+     */
+    fun refreshActiveCountdown(packageName: String) {
+        if (activeTimedPackage == packageName) {
+            Log.i(TAG, "refreshActiveCountdown: updating active countdown for $packageName")
+            sessionStartMs = System.currentTimeMillis()
+            sessionElapsedSeconds = 0L
+            startCountdownForApp(packageName)
+        }
+    }
+
     private fun isLauncherPackage(packageName: String): Boolean {
         val intent = Intent(Intent.ACTION_MAIN).apply {
             addCategory(Intent.CATEGORY_HOME)
@@ -464,8 +573,30 @@ class AppBlockerAccessibilityService : AccessibilityService() {
         return res?.activityInfo?.packageName == packageName
     }
 
+    private fun isLaunchableApp(packageName: String): Boolean {
+        return try {
+            val intent = packageManager.getLaunchIntentForPackage(packageName)
+            intent != null
+        } catch (_: Exception) {
+            false
+        }
+    }
+
+    private fun isTransientSystemPackage(pkg: String): Boolean {
+        if (pkg.isEmpty()) return true
+        if (pkg == "com.android.systemui" || pkg == "android" || pkg == this.packageName) return true
+        if (pkg.startsWith("com.android.systemui") || pkg.startsWith("com.android.intentresolver") || pkg.startsWith("com.android.chooser")) return true
+        if (pkg.contains("permissioncontroller") || pkg.contains("inputmethod") || pkg.contains("keyboard") ||
+            pkg.contains("ime") || pkg.contains("chooser") || pkg.contains("intentresolver") ||
+            pkg.contains("media") || pkg.contains("photopicker") || pkg.contains("documentsui") ||
+            pkg.contains("biometrics") || pkg.contains("gms") || pkg.contains("packageinstaller")) {
+            return true
+        }
+        return false
+    }
+
     private fun flushActiveSessionTo(prefsManager: PreferencesManager) {
-        handler.removeCallbacks(timedCheckRunnable)
+        cancelActiveCountdown()
         cancelTimerNotification()
         val pkg = activeTimedPackage ?: return
         val elapsed = ((System.currentTimeMillis() - sessionStartMs) / 1000L).coerceAtLeast(0L)
@@ -516,6 +647,15 @@ class AppBlockerAccessibilityService : AccessibilityService() {
                 android.R.drawable.ic_dialog_info
             }
 
+            // Tap action: open Fravo so the user can check their budget
+            val launchIntent = packageManager.getLaunchIntentForPackage(this.packageName)
+            val pendingIntent = if (launchIntent != null) {
+                android.app.PendingIntent.getActivity(
+                    this, 0, launchIntent,
+                    android.app.PendingIntent.FLAG_UPDATE_CURRENT or android.app.PendingIntent.FLAG_IMMUTABLE
+                )
+            } else null
+
             val builder = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
                 NotificationCompat.Builder(this, TIMER_NOTIFICATION_CHANNEL_ID)
             } else {
@@ -523,12 +663,19 @@ class AppBlockerAccessibilityService : AccessibilityService() {
                 NotificationCompat.Builder(this)
             }
 
+            // Read the full daily limit to compute progress
+            val timeLimitInfo = prefsManager.getAppTimeLimit(packageName)
+            val totalDailySeconds = timeLimitInfo?.get("dailyLimitSeconds") as? Long ?: 1L
+            val usedSeconds = totalDailySeconds - remainingSeconds
+
             val notification = builder
                 .setSmallIcon(smallIconRes)
                 .setContentTitle("$appName — Screen Time")
                 .setContentText("$timeStr remaining today$warning")
+                .setProgress(totalDailySeconds.toInt(), usedSeconds.toInt(), false)
                 .setOngoing(true)
                 .setOnlyAlertOnce(true)
+                .apply { pendingIntent?.let { setContentIntent(it) } }
                 .build()
 
             val nm = getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager

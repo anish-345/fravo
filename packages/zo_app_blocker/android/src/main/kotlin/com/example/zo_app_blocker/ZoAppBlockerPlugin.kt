@@ -29,8 +29,8 @@ class ZoAppBlockerPlugin : FlutterPlugin, MethodCallHandler, ActivityAware {
             private set
 
         /**
-         * Call this from the foreground/accessibility service whenever a
-         * timed app is opened, so Flutter can instantly sync steps + usage.
+         * Call this from the AccessibilityService whenever a timed app is
+         * opened, so Flutter can instantly sync steps + usage.
          */
         fun onAppOpened(pkg: String) {
             instance?.syncEventChannel?.invokeMethod("onAppOpened", mapOf("package" to pkg))
@@ -62,10 +62,10 @@ class ZoAppBlockerPlugin : FlutterPlugin, MethodCallHandler, ActivityAware {
         prefsManager = PreferencesManager(context!!)
         instance = this
 
-        // NOTE: No foreground polling service is started here.
         // Blocking is fully event-driven via AppBlockerAccessibilityService
         // (TYPE_WINDOW_STATE_CHANGED): a blocked app launch triggers the block,
         // and Fravo's own launch/resume triggers a budget sync from Flutter.
+        // No foreground polling service is needed.
     }
 
     override fun onMethodCall(@NonNull call: MethodCall, @NonNull result: Result) {
@@ -180,13 +180,8 @@ class ZoAppBlockerPlugin : FlutterPlugin, MethodCallHandler, ActivityAware {
                 val configArgs = call.arguments as? Map<*, *> ?: emptyMap<Any, Any>()
                 val config = configArgs.entries.associate { it.key.toString() to it.value.toString() }
                 prefs.setNotificationConfig(config)
-
-                // If the service is already running, restart it so the new icon/title takes effect.
-                context?.let {
-                    if (AppBlockerForegroundService.instance != null) {
-                        AppBlockerForegroundService.start(it)
-                    }
-                }
+                // NOTE: ForegroundService intentionally NOT restarted here.
+                // Blocking is event-driven via AppBlockerAccessibilityService.
                 result.success(null)
             }
             "saveBlockScreenCallbackHandle" -> {
@@ -227,6 +222,7 @@ class ZoAppBlockerPlugin : FlutterPlugin, MethodCallHandler, ActivityAware {
 
                 val limitSeconds = dailyLimitMinutes * 60L
                 prefs.setAppTimeLimit(packageName, limitSeconds)
+                AppBlockerAccessibilityService.instance?.refreshActiveCountdown(packageName)
                 result.success(null)
             }
 
