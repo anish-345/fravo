@@ -85,8 +85,8 @@ class AppBlockerAccessibilityService : AccessibilityService() {
         private set
 
     // Time-limit tracking state
-    private var activeTimedPackage: String? = null
-    private var sessionStartMs: Long = 0L
+    internal var activeTimedPackage: String? = null
+    internal var sessionStartMs: Long = 0L
     private var sessionElapsedSeconds: Long = 0L
     private var lastCheckedDate: String = todayString()
 

@@ -224,7 +224,7 @@ class ZoAppBlockerPlugin : FlutterPlugin, MethodCallHandler, ActivityAware {
 
             "getAppTimeLimits" -> {
                 CoroutineScope(Dispatchers.IO).launch {
-                    val limits = prefs.getAppTimeLimits().map { row ->
+                    val limits = prefs.getLiveAppTimeLimits().map { row ->
                         val limitSec = (row["dailyLimitSeconds"] as? Long) ?: 0L
                         val usedSec  = (row["usedSeconds"]       as? Long) ?: 0L
                         val remSec   = (row["remainingSeconds"]   as? Long) ?: 0L

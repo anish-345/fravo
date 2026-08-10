@@ -13,7 +13,7 @@ class UltraGlassContainer extends StatelessWidget {
   final double borderWidth;
   final bool showIridescence;
   final List<Color>? customGradient;
-  
+
   const UltraGlassContainer({
     super.key,
     required this.child,
@@ -36,7 +36,7 @@ class UltraGlassContainer extends StatelessWidget {
             filter: ImageFilter.blur(sigmaX: 40, sigmaY: 40),
             child: Container(
               decoration: BoxDecoration(
-                gradient: customGradient != null 
+                gradient: customGradient != null
                   ? LinearGradient(colors: customGradient!)
                   : LinearGradient(
                       colors: [
@@ -108,7 +108,7 @@ class VibrantGlassButton extends StatefulWidget {
   final IconData? icon;
   final List<Color> gradientColors;
   final bool loading;
-  
+
   const VibrantGlassButton({
     super.key,
     required this.label,
@@ -125,7 +125,7 @@ class VibrantGlassButton extends StatefulWidget {
   State<VibrantGlassButton> createState() => _VibrantGlassButtonState();
 }
 
-class _VibrantGlassButtonState extends State<VibrantGlassButton> 
+class _VibrantGlassButtonState extends State<VibrantGlassButton>
     with SingleTickerProviderStateMixin {
   late AnimationController _controller;
   bool _isPressed = false;
@@ -181,7 +181,7 @@ class _VibrantGlassButtonState extends State<VibrantGlassButton>
                 )
               else if (widget.icon != null)
                 Icon(widget.icon, color: Colors.white, size: 22),
-              if (widget.icon != null || widget.loading) 
+              if (widget.icon != null || widget.loading)
                 const SizedBox(width: 12),
               Text(
                 widget.label,
@@ -212,7 +212,7 @@ class SubtleGlassButton extends StatefulWidget {
   final String label;
   final VoidCallback? onPressed;
   final IconData? icon;
-  
+
   const SubtleGlassButton({
     super.key,
     required this.label,
@@ -248,8 +248,8 @@ class _SubtleGlassButtonState extends State<SubtleGlassButton> {
             children: [
               if (widget.icon != null) ...[
                 Icon(
-                  widget.icon, 
-                  color: const Color(0xFF2D3748), 
+                  widget.icon,
+                  color: const Color(0xFF2D3748),
                   size: 20,
                 ),
                 const SizedBox(width: 10),
@@ -276,7 +276,7 @@ class GlassCard extends StatelessWidget {
   final Widget child;
   final double borderRadius;
   final EdgeInsetsGeometry? padding;
-  
+
   const GlassCard({
     super.key,
     required this.child,
@@ -302,7 +302,7 @@ class GlassInputField extends StatefulWidget {
   final VoidCallback? onSuffixTap;
   final TextEditingController? controller;
   final bool obscureText;
-  
+
   const GlassInputField({
     super.key,
     this.hint,
@@ -324,7 +324,7 @@ class _GlassInputFieldState extends State<GlassInputField> {
   Widget build(BuildContext context) {
     return UltraGlassContainer(
       borderRadius: 20,
-      borderColor: _isFocused 
+      borderColor: _isFocused
         ? Colors.white.withValues(alpha: 0.3)
         : Colors.white.withValues(alpha: 0.2),
       borderWidth: _isFocused ? 2 : 1.5,
@@ -394,7 +394,7 @@ class PremiumGlassToggle extends StatelessWidget {
   final bool value;
   final ValueChanged<bool>? onChanged;
   final Color activeColor;
-  
+
   const PremiumGlassToggle({
     super.key,
     required this.value,
@@ -478,7 +478,7 @@ class GlassMetricCard extends StatelessWidget {
   final String? subtitle;
   final IconData? subtitleIcon;
   final Color? subtitleColor;
-  
+
   const GlassMetricCard({
     super.key,
     required this.value,
@@ -594,7 +594,7 @@ class GlassIconButton extends StatefulWidget {
   final VoidCallback? onPressed;
   final Color? iconColor;
   final double size;
-  
+
   const GlassIconButton({
     super.key,
     required this.icon,
@@ -639,7 +639,7 @@ class _GlassIconButtonState extends State<GlassIconButton> {
 /// Large hero card for main content
 class GlassHeroCard extends StatelessWidget {
   final Widget child;
-  
+
   const GlassHeroCard({
     super.key,
     required this.child,

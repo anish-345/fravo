@@ -257,6 +257,12 @@ class TimeBankService {
     return preset.name;
   }
 
+  /// Optional callback invoked when blocked apps configuration is modified.
+  VoidCallback? _onBlockedAppsChanged;
+
+  /// Register callback for blocked apps change.
+  void setBlockedAppsChangedCallback(VoidCallback cb) => _onBlockedAppsChanged = cb;
+
   /// Saves the full set of blocked apps in one call.
   Future<void> setBlockedApps(
     List<String> packageNames,
@@ -267,6 +273,7 @@ class TimeBankService {
     // Reset the native baseline when the app list changes so delta-sync
     // doesn't carry over usage from removed apps.
     await _saveNativeBaseline({});
+    _onBlockedAppsChanged?.call();
   }
 
   // ── Legacy single-app shims (used by existing UI that hasn't been updated) ──
