@@ -50,11 +50,6 @@ class ZoAppBlockerPlugin : FlutterPlugin, MethodCallHandler, ActivityAware {
 
         // Event channel: native → Flutter for instant sync triggers
         syncEventChannel = MethodChannel(flutterPluginBinding.binaryMessenger, "zo_app_blocker_sync_events")
-        syncEventChannel.setMethodCallHandler { call, _ ->
-            // The Flutter side handles events via setMethodCallHandler
-            // This handler exists to prevent "not implemented" errors
-            // The actual event handling is done by Flutter's setMethodCallHandler
-        }
 
         context = flutterPluginBinding.applicationContext
         permissionManager = PermissionManager(context!!)
@@ -62,10 +57,10 @@ class ZoAppBlockerPlugin : FlutterPlugin, MethodCallHandler, ActivityAware {
         prefsManager = PreferencesManager(context!!)
         instance = this
 
-        // NOTE: No foreground polling service is started here.
-        // Blocking is fully event-driven via AppBlockerAccessibilityService
-        // (TYPE_WINDOW_STATE_CHANGED): a blocked app launch triggers the block,
-        // and Fravo's own launch/resume triggers a budget sync from Flutter.
+        // Start the foreground service if permissions are granted.
+        if (permissionManager?.checkUsageStatsPermission() == "granted") {
+            AppBlockerForegroundService.start(context!!)
+        }
     }
 
     override fun onMethodCall(@NonNull call: MethodCall, @NonNull result: Result) {
@@ -126,25 +121,15 @@ class ZoAppBlockerPlugin : FlutterPlugin, MethodCallHandler, ActivityAware {
             }
             "blockApps" -> {
                 val identifiers = call.argument<List<String>>("identifiers") ?: emptyList()
-                val wanted = identifiers.toSet()
-                // Flutter always passes the FULL desired block list, so treat
-                // this as a reconciliation: replace the native set, not merge.
-                prefs.saveBlockedApps(wanted)
+                val current = prefs.getBlockedApps().toMutableSet()
+                current.addAll(identifiers)
+                prefs.saveBlockedApps(current)
                 prefs.setBlockAll(false)
                 // Mark each app's time-limit record as exhausted (usedSeconds = limitSeconds).
                 // This ensures the Accessibility Service time-limit branch sees remaining = 0
                 // and immediately shows the block screen when the app is opened.
                 for (pkg in identifiers) {
                     prefs.markTimeLimitExhausted(pkg)
-                }
-                // Prune time-limit rows for packages no longer in the list.
-                // Without this, an app the user removed from the block list keeps
-                // its exhausted row and the Accessibility Service re-blocks it on launch.
-                for (row in prefs.getAppTimeLimits()) {
-                    val pkg = row["packageName"] as? String ?: continue
-                    if (pkg !in wanted) {
-                        prefs.removeAppTimeLimit(pkg)
-                    }
                 }
                 AppBlockerAccessibilityService.instance?.checkCurrentForegroundApp()
                 result.success(null)
@@ -154,11 +139,6 @@ class ZoAppBlockerPlugin : FlutterPlugin, MethodCallHandler, ActivityAware {
                 val current = prefs.getBlockedApps().toMutableSet()
                 current.removeAll(identifiers.toSet())
                 prefs.saveBlockedApps(current)
-                // Drop the time-limit rows for the unblocked apps so no exhausted
-                // record survives to re-block them on the next launch.
-                for (pkg in identifiers) {
-                    prefs.removeAppTimeLimit(pkg)
-                }
                 AppBlockerAccessibilityService.instance?.checkCurrentForegroundApp()
                 result.success(null)
             }
@@ -170,9 +150,6 @@ class ZoAppBlockerPlugin : FlutterPlugin, MethodCallHandler, ActivityAware {
             "unblockAll" -> {
                 prefs.setBlockAll(false)
                 prefs.saveBlockedApps(emptySet())
-                // Clear every time-limit row's usage so no exhausted record can
-                // re-block an app on the next launch after a full unblock.
-                prefs.resetAllDailyUsage()
                 AppBlockerAccessibilityService.instance?.checkCurrentForegroundApp()
                 result.success(null)
             }
@@ -296,7 +273,6 @@ class ZoAppBlockerPlugin : FlutterPlugin, MethodCallHandler, ActivityAware {
 
     override fun onDetachedFromEngine(@NonNull binding: FlutterPlugin.FlutterPluginBinding) {
         channel.setMethodCallHandler(null)
-        syncEventChannel.setMethodCallHandler(null)
         instance = null
     }
 

@@ -2,8 +2,6 @@ package com.example.zo_app_blocker
 
 import android.accessibilityservice.AccessibilityService
 import android.accessibilityservice.AccessibilityServiceInfo
-import android.app.NotificationChannel
-import android.app.NotificationManager
 import android.content.Context
 import android.content.Intent
 import android.graphics.Color
@@ -21,7 +19,6 @@ import android.view.WindowManager
 import android.view.accessibility.AccessibilityEvent
 import android.widget.LinearLayout
 import android.widget.TextView
-import androidx.core.app.NotificationCompat
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
@@ -35,8 +32,6 @@ class AppBlockerAccessibilityService : AccessibilityService() {
 
     companion object {
         private const val TAG = "AppBlockerAccessService"
-        private const val TIMER_NOTIFICATION_CHANNEL_ID = "zo_app_timer_channel"
-        private const val TIMER_NOTIFICATION_ID = 202
 
         @Volatile var instance: AppBlockerAccessibilityService? = null
             private set
@@ -97,29 +92,21 @@ class AppBlockerAccessibilityService : AccessibilityService() {
 
     private val timedCheckRunnable = object : Runnable {
         override fun run() {
-            val pkg = activeTimedPackage ?: run {
-                cancelTimerNotification()
-                return
-            }
+            val pkg = activeTimedPackage ?: return
             val timeLimitInfo = prefsManager.getAppTimeLimit(pkg)
             if (timeLimitInfo != null) {
                 val limitSeconds = timeLimitInfo["dailyLimitSeconds"] as? Long ?: 0L
                 val usedSeconds = timeLimitInfo["usedSeconds"] as? Long ?: 0L
                 val elapsedSec = ((System.currentTimeMillis() - sessionStartMs) / 1000L).coerceAtLeast(0L)
                 val totalUsed = usedSeconds + elapsedSec
-                val remainingSec = (limitSeconds - totalUsed).coerceAtLeast(0L)
-
                 if (totalUsed >= limitSeconds) {
                     flushActiveSessionTo(prefsManager)
                     ensureAppIsBlocked(pkg, prefsManager)
                     showOverlayForPackage(pkg)
-                    cancelTimerNotification()
                     return
-                } else {
-                    updateActiveTimerNotification(pkg, remainingSec)
                 }
             }
-            handler.postDelayed(this, 1000L)
+            handler.postDelayed(this, 2000L)
         }
     }
 
@@ -466,7 +453,6 @@ class AppBlockerAccessibilityService : AccessibilityService() {
 
     private fun flushActiveSessionTo(prefsManager: PreferencesManager) {
         handler.removeCallbacks(timedCheckRunnable)
-        cancelTimerNotification()
         val pkg = activeTimedPackage ?: return
         val elapsed = ((System.currentTimeMillis() - sessionStartMs) / 1000L).coerceAtLeast(0L)
         if (elapsed > 0L) {
@@ -475,74 +461,6 @@ class AppBlockerAccessibilityService : AccessibilityService() {
         activeTimedPackage = null
         sessionStartMs = 0L
         sessionElapsedSeconds = 0L
-    }
-
-    private fun createNotificationChannel() {
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-            val channel = NotificationChannel(
-                TIMER_NOTIFICATION_CHANNEL_ID,
-                "Fravo App Timer",
-                NotificationManager.IMPORTANCE_LOW
-            ).apply {
-                description = "Shows live remaining screen time for active apps"
-            }
-            val nm = getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
-            nm.createNotificationChannel(channel)
-        }
-    }
-
-    private fun updateActiveTimerNotification(packageName: String, remainingSeconds: Long) {
-        try {
-            createNotificationChannel()
-            val pm = packageManager
-            val appName = try {
-                val info = pm.getApplicationInfo(packageName, 0)
-                pm.getApplicationLabel(info).toString()
-            } catch (e: Exception) { packageName }
-
-            val mins = remainingSeconds / 60
-            val secs = remainingSeconds % 60
-            val timeStr = if (mins > 0) "$mins min ${secs}s" else "${secs}s"
-            val warning = if (remainingSeconds <= 60) " ⚠️" else ""
-
-            val smallIconRes: Int = run {
-                val hostPkg = applicationContext.packageName
-                try {
-                    val id = pm.getResourcesForApplication(hostPkg).getIdentifier("ic_notification", "drawable", hostPkg)
-                    if (id != 0) return@run id
-                    val mipId = pm.getResourcesForApplication(hostPkg).getIdentifier("ic_launcher", "mipmap", hostPkg)
-                    if (mipId != 0) return@run mipId
-                } catch (_: Exception) {}
-                android.R.drawable.ic_dialog_info
-            }
-
-            val builder = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-                NotificationCompat.Builder(this, TIMER_NOTIFICATION_CHANNEL_ID)
-            } else {
-                @Suppress("DEPRECATION")
-                NotificationCompat.Builder(this)
-            }
-
-            val notification = builder
-                .setSmallIcon(smallIconRes)
-                .setContentTitle("$appName — Screen Time")
-                .setContentText("$timeStr remaining today$warning")
-                .setOngoing(true)
-                .setOnlyAlertOnce(true)
-                .build()
-
-            val nm = getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
-            nm.notify(TIMER_NOTIFICATION_ID, notification)
-        } catch (e: Exception) {
-            Log.e(TAG, "updateActiveTimerNotification error: ${e.message}")
-        }
-    }
-
-    private fun cancelTimerNotification() {
-        try {
-            val nm = getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
-            nm.cancel(TIMER_NOTIFICATION_ID)
-        } catch (_: Exception) {}
     }
 
     private fun ensureAppIsBlocked(packageName: String, prefsManager: PreferencesManager) {

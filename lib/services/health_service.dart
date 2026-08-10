@@ -31,12 +31,6 @@ class HealthService {
   int _latestSensorSteps = 0;
   int _pendingSteps = 0;
 
-  /// The day (yyyy-MM-dd) the current [_latestSensorSteps] value was sampled.
-  /// Guards against using a stale pre-midnight count after a daily reset —
-  /// before the first step of the new day, the sensor still holds yesterday's
-  /// pedometer total.
-  String? _sensorStepsDate;
-
   static const List<HealthDataType> _types = [HealthDataType.STEPS];
 
   /// Debounce duration for pedometer events (reduces CPU wake-ups).
@@ -109,7 +103,6 @@ class HealthService {
       }
 
       _latestSensorSteps = (hardwareSteps - baseline).clamp(0, 999999);
-      _sensorStepsDate = today;
       debugPrint(
         '📱 Pedometer: $_latestSensorSteps steps today (hw: $hardwareSteps)',
       );
@@ -178,10 +171,6 @@ class HealthService {
     }
   }
 
-  Future<bool> openAppSettingsPage() async {
-    return await openAppSettings();
-  }
-
   Future<bool> checkHealthConnectPermission() async {
     try {
       await _ensureConfigured();
@@ -197,16 +186,7 @@ class HealthService {
 
   Future<bool> requestActivityRecognitionPermission() async {
     try {
-      var status = await Permission.activityRecognition.status;
-      if (status.isPermanentlyDenied) {
-        await openAppSettings();
-        return false;
-      }
-      status = await Permission.activityRecognition.request();
-      if (status.isPermanentlyDenied) {
-        await openAppSettings();
-        return false;
-      }
+      final status = await Permission.activityRecognition.request();
       if (status.isGranted) {
         await initPedometerListener();
       }
@@ -234,8 +214,7 @@ class HealthService {
 
   Future<bool> requestPermissions() async {
     final healthConnectGranted = await requestHealthConnectPermission();
-    final activityRecognitionGranted =
-        await requestActivityRecognitionPermission();
+    final activityRecognitionGranted = await requestActivityRecognitionPermission();
     return healthConnectGranted || activityRecognitionGranted;
   }
 
@@ -287,14 +266,7 @@ class HealthService {
     await initPedometerListener();
     final hcSteps = await _fetchHealthConnectSteps();
     if (hcSteps > 0) return hcSteps;
-    // Only trust the live pedometer count if it was sampled TODAY.
-    // Before the first step event of a new day, _latestSensorSteps still
-    // holds YESTERDAY's leftover count; returning it here would resurrect
-    // the previous day's steps right after the midnight reset.
-    final now = DateTime.now();
-    final today =
-        '${now.year}-${now.month.toString().padLeft(2, '0')}-${now.day.toString().padLeft(2, '0')}';
-    if (_sensorStepsDate == today && _latestSensorSteps > 0) {
+    if (_latestSensorSteps > 0) {
       debugPrint('Using live pedometer steps: $_latestSensorSteps');
       return _latestSensorSteps;
     }

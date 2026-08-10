@@ -1,7 +1,7 @@
 import 'dart:typed_data';
 import 'dart:ui';
 import 'dart:io' show Platform;
-import 'package:flutter/foundation.dart' show kIsWeb, debugPrint;
+import 'package:flutter/foundation.dart' show kIsWeb;
 import 'zo_app_blocker_platform_interface.dart';
 import 'src/app_time_limit.dart';
 
@@ -22,7 +22,7 @@ class ZoAppBlocker {
 
   bool get _isNotSupported {
     if (kIsWeb || !Platform.isAndroid) {
-      debugPrint('zo_app_blocker is not supported on this platform');
+      print('zo_app_blocker is not supported on this platform');
       return true;
     }
     return false;

@@ -66,16 +66,6 @@ class BlockerService {
     }
   }
 
-  /// Requests notification permission only (iOS-style, progressive flow).
-  Future<void> requestNotificationPermission() async {
-    if (!Platform.isAndroid) return;
-    try {
-      await _blocker.requestNotificationPermission();
-    } catch (e) {
-      debugPrint('BlockerService.requestNotificationPermission error: $e');
-    }
-  }
-
   Future<void> requestAccessibilityPermission() async {
     if (!Platform.isAndroid) return;
     try {
@@ -133,10 +123,8 @@ class BlockerService {
       final accessibility = await _blocker.checkAccessibilityPermission();
       final overlay = await _blocker.checkOverlayPermission();
       final notification = await _blocker.checkNotificationPermission();
-      final activity = await HealthService.instance
-          .checkActivityRecognitionPermission();
-      final healthConnect = await HealthService.instance
-          .checkHealthConnectPermission();
+      final activity = await HealthService.instance.checkActivityRecognitionPermission();
+      final healthConnect = await HealthService.instance.checkHealthConnectPermission();
       return {
         'usageStats': usage == 'granted',
         'accessibility': accessibility == 'granted',
@@ -233,15 +221,7 @@ class BlockerService {
       );
 
       if (targets.isEmpty) {
-        // No apps configured → clear native state too, otherwise previously
-        // blocked apps keep their exhausted time-limit rows and the native
-        // enforcer re-blocks them on launch even though they were removed.
-        debugPrint('BlockerService: no blocked apps configured — clearing native state.');
-        try {
-          await _blocker.unblockAll();
-        } catch (e) {
-          debugPrint('unblockAll error: $e');
-        }
+        debugPrint('BlockerService: no blocked apps configured — skipping.');
         return;
       }
 
@@ -356,19 +336,19 @@ class BlockerService {
         'watching ${targets.length} package(s).',
       );
 
-      // Build a map of packageName → usedSeconds from the native layer.
-      final Map<String, int> currentUsageSeconds = {};
+      // Build a map of packageName → usedMinutes from the native layer.
+      final Map<String, int> currentUsage = {};
       for (final limit in limits) {
         if (targets.contains(limit.packageName)) {
-          currentUsageSeconds[limit.packageName] = limit.usedSeconds;
+          currentUsage[limit.packageName] = limit.usedMinutes;
           debugPrint(
-            '  native: ${limit.packageName} → used=${limit.usedSeconds} sec (${limit.usedMinutes} min)',
+            '  native: ${limit.packageName} → used=${limit.usedMinutes} min',
           );
         }
       }
 
       // Hand off to TimeBankService for delta computation.
-      await TimeBankService.instance.syncNativeUsageDelta(currentUsageSeconds);
+      await TimeBankService.instance.syncNativeUsageDelta(currentUsage);
     } catch (e) {
       debugPrint('BlockerService.syncUsageFromNative error: $e');
     }
