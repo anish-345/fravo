@@ -413,12 +413,11 @@ class _FravoDashboardState extends State<FravoDashboard>
   }
 
   Future<void> _showEmergencySnooze() async {
-    final steps = _timeBank.totalStepsWalked;
-    if (steps < TimeBankService.emergencyPassCostSteps) {
+    if (!_timeBank.canUseEmergencyPass) {
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
-          content: Text(
-            'You need at least ${TimeBankService.emergencyPassCostSteps} steps to use an emergency pass. Walk more first!',
+          content: const Text(
+            'You have already used your 1 Emergency Pass today. Resets at midnight!',
           ),
           backgroundColor: const Color(0xFFEF4444),
           behavior: SnackBarBehavior.floating,
@@ -482,7 +481,7 @@ class _FravoDashboardState extends State<FravoDashboard>
                   ),
                   const SizedBox(width: 8),
                   Text(
-                    'Cost: ${TimeBankService.emergencyPassCostSteps} steps → ${TimeBankService.emergencyPassDurationMinutes} minutes',
+                    '+${TimeBankService.emergencyPassDurationMinutes} minutes added to your earned time',
                     style: const TextStyle(
                       fontSize: 12,
                       fontWeight: FontWeight.w600,
@@ -508,12 +507,14 @@ class _FravoDashboardState extends State<FravoDashboard>
               await _blockerService.evaluateBlockState();
               if (ctx.mounted) Navigator.pop(ctx);
               if (mounted) {
-                setState(() {});
-                ScaffoldMessenger.of(context).showSnackBar(
+                await _pullUsageAndRefresh();
+              }
+              if (ctx.mounted) {
+                ScaffoldMessenger.of(ctx).showSnackBar(
                   SnackBar(
                     content: Text(
                       success
-                          ? '3-minute pass active! Use it wisely.'
+                          ? '+3 minutes added to your earned screen time!'
                           : 'Could not activate pass. Check your steps balance.',
                     ),
                     backgroundColor: success
@@ -755,11 +756,10 @@ class _FravoDashboardState extends State<FravoDashboard>
               const SizedBox(height: 24),
 
               // ── Emergency 3-Min Pass ──────────────────────────────────
-              if (!hasEmergencyPass)
-                EmergencySnoozeCard(
-                  totalSteps: totalSteps,
-                  onTap: _showEmergencySnooze,
-                ),
+              EmergencySnoozeCard(
+                isAvailable: _timeBank.canUseEmergencyPass,
+                onTap: _showEmergencySnooze,
+              ),
 
               const SizedBox(height: 24),
 

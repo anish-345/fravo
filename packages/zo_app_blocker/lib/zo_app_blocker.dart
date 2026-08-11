@@ -317,4 +317,10 @@ class ZoAppBlocker {
     if (_isNotSupported) return Future.value();
     return ZoAppBlockerPlatform.instance.resetAppUsage(packageName);
   }
+
+  /// Manually resets today's usage counter for ALL configured packages to zero.
+  Future<void> resetAllDailyUsage() {
+    if (_isNotSupported) return Future.value();
+    return ZoAppBlockerPlatform.instance.resetAllDailyUsage();
+  }
 }

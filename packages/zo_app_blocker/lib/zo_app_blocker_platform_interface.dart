@@ -123,4 +123,8 @@ abstract class ZoAppBlockerPlatform extends PlatformInterface {
   Future<void> resetAppUsage(String packageName) {
     throw UnimplementedError('resetAppUsage() has not been implemented.');
   }
+
+  Future<void> resetAllDailyUsage() {
+    throw UnimplementedError('resetAllDailyUsage() has not been implemented.');
+  }
 }

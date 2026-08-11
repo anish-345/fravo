@@ -167,4 +167,9 @@ class MethodChannelZoAppBlocker extends ZoAppBlockerPlatform {
       'packageName': packageName,
     });
   }
+
+  @override
+  Future<void> resetAllDailyUsage() async {
+    await methodChannel.invokeMethod<void>('resetAllDailyUsage');
+  }
 }

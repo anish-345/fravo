@@ -45,8 +45,10 @@ class AppBlockerAccessibilityService : AccessibilityService() {
         @Volatile var instance: AppBlockerAccessibilityService? = null
             private set
 
-        private val DATE_FORMAT = SimpleDateFormat("yyyy-MM-dd", Locale.US)
-        fun todayString(): String = DATE_FORMAT.format(Date())
+        // Uses DatabaseHelper.todayString() so the day boundary is always
+        // consistent across both the native and Flutter layers (including
+        // any testing-mode shift, e.g. 3:10 PM instead of midnight).
+        fun todayString(): String = DatabaseHelper.todayString()
 
         /**
          * Checks if this AccessibilityService is enabled in System Settings.
@@ -98,6 +100,21 @@ class AppBlockerAccessibilityService : AccessibilityService() {
     internal var sessionStartMs: Long = 0L
     private var sessionElapsedSeconds: Long = 0L
     private var lastCheckedDate: String = todayString()
+
+    /**
+     * Clears in-memory session state WITHOUT flushing elapsed seconds to SQLite.
+     * Called immediately after a daily reset so accumulated in-memory time from
+     * the previous day is discarded and cannot be written back to the freshly
+     * zeroed database.
+     */
+    fun resetSessionState() {
+        cancelActiveCountdown()
+        cancelTimerNotification()
+        activeTimedPackage = null
+        sessionStartMs = 0L
+        sessionElapsedSeconds = 0L
+        Log.i(TAG, "resetSessionState: in-memory session cleared (daily reset).")
+    }
 
     // ── Event-driven countdown timer ──────────────────────────────────────────
     // Uses Android's CountDownTimer for a clean, event-driven countdown instead
@@ -303,6 +320,17 @@ class AppBlockerAccessibilityService : AccessibilityService() {
         }
 
         lastPackage = currentPkg
+
+        // Explicit block check MUST take precedence over time-limit countdowns.
+        // If the app is in the blocked set (e.g. earned = 0 or budget exhausted),
+        // enforce the block immediately and do NOT run any native countdown timer.
+        val isExplicitlyBlocked = if (prefsManager.isBlockAll()) true
+                                  else prefsManager.getBlockedApps().contains(currentPkg)
+        if (isExplicitlyBlocked) {
+            flushActiveSessionTo(prefsManager)
+            showOverlayForPackage(currentPkg)
+            return
+        }
 
         // Evaluate Time Limit
         val timeLimitInfo = prefsManager.getAppTimeLimit(currentPkg)
@@ -703,7 +731,10 @@ class AppBlockerAccessibilityService : AccessibilityService() {
 
     private fun handleMidnightReset(prefsManager: PreferencesManager, today: String) {
         lastCheckedDate = today
-        flushActiveSessionTo(prefsManager)
+        // Discard in-memory session WITHOUT writing stale elapsed seconds back to
+        // the DB — the DB is about to be zeroed so flushing would immediately
+        // restore yesterday's seconds into the fresh record.
+        resetSessionState()
         prefsManager.resetAllDailyUsage()
 
         val timeLimitedPackages = prefsManager.getTimeLimitedPackages()

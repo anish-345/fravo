@@ -476,7 +476,7 @@ class BlockedAppsCard extends StatelessWidget {
             Column(
               children: visible.map((pkg) {
                 final name = timeBank.displayNameFor(pkg);
-                final usedMins = timeBank.getUsedMinutesForApp(pkg);
+                final usedStr = timeBank.getFormattedUsedTimeForApp(pkg);
                 return Padding(
                   padding: const EdgeInsets.only(bottom: 10),
                   child: Row(
@@ -502,7 +502,7 @@ class BlockedAppsCard extends StatelessWidget {
                         ),
                       ),
                       Text(
-                        '${usedMins}m',
+                        usedStr,
                         style: const TextStyle(
                           fontSize: 12,
                           fontWeight: FontWeight.w600,
@@ -542,24 +542,23 @@ class BlockedAppsCard extends StatelessWidget {
 // ── Emergency Snooze Card ──────────────────────────────────────────────────
 
 class EmergencySnoozeCard extends StatelessWidget {
-  final int totalSteps;
+  final bool isAvailable;
   final VoidCallback onTap;
 
   const EmergencySnoozeCard({
     super.key,
-    required this.totalSteps,
+    this.isAvailable = true,
     required this.onTap,
   });
 
   @override
   Widget build(BuildContext context) {
-    final hasEnough = totalSteps >= TimeBankService.emergencyPassCostSteps;
-    final tint = hasEnough
+    final tint = isAvailable
         ? const Color(0xFFFFD0D0)
         : const Color(0xFFE0E4EE);
 
     return GestureDetector(
-      onTap: onTap,
+      onTap: isAvailable ? onTap : null,
       child: PuffyGlassContainer(
         borderRadius: 22,
         tintColor: tint,
@@ -571,15 +570,15 @@ class EmergencySnoozeCard extends StatelessWidget {
               padding: const EdgeInsets.all(11),
               decoration: BoxDecoration(
                 gradient: LinearGradient(
-                  colors: hasEnough
+                  colors: isAvailable
                       ? GlassPalette.rose
                       : const [Color(0xFFE0E4EE), Color(0xFFC5C9D6)],
                 ),
                 shape: BoxShape.circle,
               ),
-              child: Icon(
+              child: const Icon(
                 Icons.emergency_rounded,
-                color: const Color(0xFF1A1A2E),
+                color: Color(0xFF1A1A2E),
                 size: 22,
               ),
             ),
@@ -589,9 +588,9 @@ class EmergencySnoozeCard extends StatelessWidget {
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   Text(
-                    hasEnough
+                    isAvailable
                         ? 'Emergency 3-Min Pass'
-                        : 'Emergency Pass Locked',
+                        : 'Emergency Pass Used Today',
                     style: const TextStyle(
                       fontSize: 14.5,
                       fontWeight: FontWeight.w800,
@@ -600,9 +599,9 @@ class EmergencySnoozeCard extends StatelessWidget {
                   ),
                   const SizedBox(height: 2),
                   Text(
-                    hasEnough
-                        ? 'Costs ${TimeBankService.emergencyPassCostSteps} steps for ${TimeBankService.emergencyPassDurationMinutes} min unlock'
-                        : 'Walk ${TimeBankService.emergencyPassCostSteps} steps to unlock this feature',
+                    isAvailable
+                        ? '+3 minutes emergency screen time (1 use per day)'
+                        : 'Limit reached (1/day) • Resets at midnight',
                     style: const TextStyle(
                       fontSize: 12,
                       color: Color(0xFF1A1A2E),
@@ -611,7 +610,7 @@ class EmergencySnoozeCard extends StatelessWidget {
                 ],
               ),
             ),
-            if (hasEnough)
+            if (isAvailable)
               const Icon(
                 Icons.chevron_right_rounded,
                 color: Color(0xFF1A1A2E),

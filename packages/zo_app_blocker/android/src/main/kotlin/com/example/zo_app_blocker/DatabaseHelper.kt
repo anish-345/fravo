@@ -52,7 +52,7 @@ class DatabaseHelper(context: Context) : SQLiteOpenHelper(
         const val COLUMN_TL_LAST_RESET = "last_reset_date"
 
         private val DATE_FORMAT = SimpleDateFormat("yyyy-MM-dd", Locale.US)
-        fun todayString(): String = DATE_FORMAT.format(Date())
+        fun todayString(): String = DATE_FORMAT.format(java.util.Date())
     }
 
     override fun onCreate(db: SQLiteDatabase) {
@@ -351,29 +351,46 @@ class DatabaseHelper(context: Context) : SQLiteOpenHelper(
      * even if the native per-app timer hasn't counted down to zero yet.
      *
      * Safe to call even if no time-limit row exists for [packageName] (no-op).
+     *
+     * IMPORTANT: Does NOT overwrite a freshly-reset record (used_seconds == 0 and
+     * last_reset_date == today). After a daily reset, blockApps() is called with
+     * earned=0 which would otherwise immediately restore the exhausted state —
+     * undoing the daily reset entirely.
      */
     fun markTimeLimitExhausted(packageName: String) {
+        val today = todayString()
         val db = this.writableDatabase
         val cursor = db.query(
             TABLE_TIME_LIMITS,
-            arrayOf(COLUMN_TL_LIMIT_SECONDS),
+            arrayOf(COLUMN_TL_LIMIT_SECONDS, COLUMN_TL_USED_SECONDS, COLUMN_TL_LAST_RESET),
             "$COLUMN_TL_PACKAGE=?", arrayOf(packageName),
             null, null, null
         )
         if (!cursor.moveToFirst()) { cursor.close(); return }
         val limitSec = cursor.getLong(0)
+        val usedSec  = cursor.getLong(1)
+        val lastReset = cursor.getString(2)
         cursor.close()
+
+        // Guard: if the record was already reset today and used_seconds is 0,
+        // a daily reset just ran — do NOT restore the exhausted state.
+        if (lastReset == today && usedSec == 0L) {
+            android.util.Log.i("DatabaseHelper",
+                "markTimeLimitExhausted: skipping $packageName — freshly reset today, used=0")
+            return
+        }
 
         val cv = ContentValues().apply {
             put(COLUMN_TL_USED_SECONDS, limitSec)  // used == limit → remaining = 0
-            put(COLUMN_TL_LAST_RESET, todayString())
+            put(COLUMN_TL_LAST_RESET, today)
         }
         db.update(TABLE_TIME_LIMITS, cv, "$COLUMN_TL_PACKAGE=?", arrayOf(packageName))
     }
 
     /**
      * Resets today's used seconds to 0 for ALL configured time-limit apps.
-     * Called at midnight.
+     * Called at midnight / daily reset. Retains configured time limits so
+     * timer countdowns start fresh on the new day.
      */
     fun resetAllDailyUsage() {
         val db = this.writableDatabase

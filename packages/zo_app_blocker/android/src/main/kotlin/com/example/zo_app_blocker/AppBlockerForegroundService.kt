@@ -58,8 +58,9 @@ class AppBlockerForegroundService : Service() {
             context.stopService(Intent(context, AppBlockerForegroundService::class.java))
         }
 
-        private val DATE_FORMAT = SimpleDateFormat("yyyy-MM-dd", Locale.US)
-        fun todayString(): String = DATE_FORMAT.format(Date())
+        // Uses DatabaseHelper.todayString() so the day boundary is always
+        // consistent with the Flutter layer (including any testing-mode shift).
+        fun todayString(): String = DatabaseHelper.todayString()
     }
 
     private val handler = Handler(Looper.getMainLooper())
@@ -255,6 +256,15 @@ class AppBlockerForegroundService : Service() {
         }
 
         lastPackage = currentPkg
+
+        // Explicit block check MUST take precedence over time-limit countdowns.
+        val isExplicitlyBlocked = if (prefsManager.isBlockAll()) true
+                                  else prefsManager.getBlockedApps().contains(currentPkg)
+        if (isExplicitlyBlocked) {
+            flushActiveSessionTo(prefsManager)
+            showOverlayForPackage(currentPkg)
+            return
+        }
 
         val timeLimitInfo = prefsManager.getAppTimeLimit(currentPkg)
 
@@ -613,6 +623,18 @@ class AppBlockerForegroundService : Service() {
         sessionElapsedSeconds = 0L
     }
 
+    /**
+     * Discards the in-memory session WITHOUT writing elapsed seconds to SQLite.
+     * Used at daily reset so stale previous-day time cannot be written back
+     * to a freshly zeroed DB row.
+     */
+    private fun resetSessionState() {
+        activeTimedPackage = null
+        sessionStartMs = 0L
+        sessionElapsedSeconds = 0L
+        android.util.Log.i("AppBlockerService", "resetSessionState: in-memory session cleared (daily reset).")
+    }
+
     private fun ensureAppIsBlocked(packageName: String, prefsManager: PreferencesManager) {
         val blocked = prefsManager.getBlockedApps()
         if (!blocked.contains(packageName)) {
@@ -624,7 +646,10 @@ class AppBlockerForegroundService : Service() {
 
     private fun handleMidnightReset(prefsManager: PreferencesManager, today: String) {
         lastCheckedDate = today
-        flushActiveSessionTo(prefsManager)
+        // Discard in-memory session WITHOUT flushing stale elapsed seconds to DB —
+        // the DB is about to be zeroed so flushing would immediately restore
+        // yesterday's time into the fresh record.
+        resetSessionState()
         prefsManager.resetAllDailyUsage()
 
         val timeLimitedPackages = prefsManager.getTimeLimitedPackages()

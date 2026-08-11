@@ -2,6 +2,7 @@ import 'dart:convert';
 
 import 'package:flutter/foundation.dart';
 import 'package:hive_flutter/hive_flutter.dart';
+import 'package:zo_app_blocker/zo_app_blocker.dart';
 
 /// App preset definition for popular applications
 class PresetApp {
@@ -95,8 +96,7 @@ class TimeBankService {
   /// Custom step goal: default 10000.
   static const String _customStepGoalKey = 'customStepGoal';
 
-  /// Emergency snooze: tracks active emergency pass expiry timestamp (ms).
-  static const String _emergencyPassExpiryKey = 'emergencyPassExpiry';
+
 
   /// Tracks the last remaining-minutes value we armed the native trip-wire to.
   /// -1 = never set (forces first-run setup). Used in BlockerService to avoid
@@ -193,10 +193,15 @@ class TimeBankService {
     await _box?.put(_minutesPer1kStepsKey, value.clamp(5, 60));
   }
 
-  /// Total minutes earned based on steps walked.
-  /// Formula: (steps / 1000) * minutesPer1kSteps  (floating-point, then floor).
+  /// Emergency pass bonus minutes added to earned time today.
+  int get emergencyPassBonusMinutes =>
+      (_box?.get(_emergencyPassBonusMinutesKey) as int?) ?? 0;
+
+  /// Total minutes earned based on steps walked + emergency pass bonus minutes.
+  /// Formula: (steps / 1000) * minutesPer1kSteps + emergencyPassBonusMinutes.
   int get earnedMinutes =>
-      ((totalStepsWalked / 1000) * minutesPer1kSteps).floor();
+      ((totalStepsWalked / 1000) * minutesPer1kSteps).floor() +
+      emergencyPassBonusMinutes;
 
   // ── Used time ─────────────────────────────────────────────────────────────
 
@@ -212,35 +217,56 @@ class TimeBankService {
 
   /// Remaining screen time, clamped to [0, earnedMinutes].
   int get remainingScreenTime {
-    final emergencyBonus = _emergencyPassActiveMinutes;
-    return (earnedMinutes - usedMinutes + emergencyBonus).clamp(
-        0, (earnedMinutes + emergencyBonus) > 0 ? (earnedMinutes + emergencyBonus) : 0);
+    return (earnedMinutes - usedMinutes).clamp(0, 999999);
   }
 
   /// Remaining screen time in **seconds** — more precise than [remainingScreenTime].
   /// Used by the dashboard countdown to show sub-minute resolution.
   int get remainingScreenTimeSeconds {
-    final emergencyBonusSec = _emergencyPassActiveMinutes * 60;
     final earnedSec = earnedMinutes * 60;
-    return (earnedSec - usedSecondsTotal + emergencyBonusSec).clamp(
-        0, (earnedSec + emergencyBonusSec) > 0 ? (earnedSec + emergencyBonusSec) : 0);
+    return (earnedSec - usedSecondsTotal).clamp(0, 999999);
+  }
+
+  static const String _perAppUsedSecondsKey = 'perAppUsedSecondsTotal';
+
+  /// Map of packageName -> usedSeconds consumed per blocked application today.
+  Map<String, int> get perAppUsedSeconds {
+    final raw = _box?.get(_perAppUsedSecondsKey) as String?;
+    if (raw != null) {
+      try {
+        final decoded = jsonDecode(raw) as Map<String, dynamic>;
+        return decoded.map((k, v) => MapEntry(k, (v as num).toInt()));
+      } catch (_) {}
+    }
+    // Backward-compatibility fallback: migrate perAppUsedMinutes if seconds key missing
+    final perAppMin = perAppUsedMinutes;
+    return perAppMin.map((k, v) => MapEntry(k, v * 60));
   }
 
   /// Map of packageName -> usedMinutes consumed per blocked application today.
   Map<String, int> get perAppUsedMinutes {
-    final raw = _box?.get(_perAppUsedMinutesKey) as String?;
-    if (raw == null) return {};
-    try {
-      final decoded = jsonDecode(raw) as Map<String, dynamic>;
-      return decoded.map((k, v) => MapEntry(k, (v as num).toInt()));
-    } catch (_) {
-      return {};
-    }
+    return perAppUsedSeconds
+        .map((k, seconds) => MapEntry(k, (seconds / 60).floor()));
   }
+
+  /// Returns used seconds for a specific blocked package.
+  int getUsedSecondsForApp(String packageName) =>
+      perAppUsedSeconds[packageName] ?? 0;
 
   /// Returns used minutes for a specific blocked package.
   int getUsedMinutesForApp(String packageName) =>
-      perAppUsedMinutes[packageName] ?? 0;
+      (getUsedSecondsForApp(packageName) / 60).floor();
+
+  /// Returns a clean formatted string for app usage (e.g. "45s", "2m", "4m 15s").
+  String getFormattedUsedTimeForApp(String packageName) {
+    final totalSec = getUsedSecondsForApp(packageName);
+    if (totalSec <= 0) return '0m';
+    if (totalSec < 60) return '${totalSec}s';
+    final mins = totalSec ~/ 60;
+    final secs = totalSec % 60;
+    if (secs == 0) return '${mins}m';
+    return '${mins}m ${secs}s';
+  }
 
   /// After calling [setAppTimeLimit] (which resets the native counter to 0),
   /// zero out our stored baseline for those packages so the next delta-sync
@@ -269,11 +295,26 @@ class TimeBankService {
     await _box?.put(_nativeUsageBaselineKey, jsonEncode(baseline));
   }
 
+  static const String _isFreshResetPendingKey = 'isFreshResetPending';
+
   /// Delta-sync: called by BlockerService with the current raw native usage
   /// map (packageName → seconds).
   Future<void> syncNativeUsageDelta(Map<String, int> currentNativeUsage) async {
+    final bool isFreshReset =
+        (_box?.get(_isFreshResetPendingKey) as bool?) ?? false;
+    if (isFreshReset) {
+      // On a fresh day reset: seed baseline with current native values (or 0)
+      // WITHOUT treating yesterday's remaining native counts as new usage!
+      await _saveNativeBaseline(currentNativeUsage);
+      await _box?.put(_isFreshResetPendingKey, false);
+      debugPrint(
+        'TimeBankService: Fresh day reset pending cleared — seeded native baseline for ${currentNativeUsage.length} app(s).',
+      );
+      return;
+    }
+
     final baseline = Map<String, int>.from(_nativeBaseline);
-    final perApp = Map<String, int>.from(perAppUsedMinutes);
+    final perAppSec = Map<String, int>.from(perAppUsedSeconds);
     int totalDeltaSeconds = 0;
     final newBaseline = <String, int>{};
 
@@ -296,10 +337,8 @@ class TimeBankService {
       final pkgDeltaSec = currentSec - baselineSec;
       if (pkgDeltaSec > 0) {
         totalDeltaSeconds += pkgDeltaSec;
-        final deltaMin = (pkgDeltaSec / 60).floor();
-        if (deltaMin > 0) {
-          perApp[pkg] = (perApp[pkg] ?? 0) + deltaMin;
-        }
+        // Accumulate exact seconds per application
+        perAppSec[pkg] = (perAppSec[pkg] ?? 0) + pkgDeltaSec;
       }
 
       // Always record current value as the new baseline for this package.
@@ -318,7 +357,11 @@ class TimeBankService {
       final newUsedMinutes = (newUsedSeconds / 60).floor();
       await _box?.put(_usedSecondsKey, newUsedSeconds);
       await _box?.put(_usedMinutesKey, newUsedMinutes);
-      await _box?.put(_perAppUsedMinutesKey, jsonEncode(perApp));
+      await _box?.put(_perAppUsedSecondsKey, jsonEncode(perAppSec));
+      // Keep perAppUsedMinutes updated for backward compatibility
+      final perAppMin =
+          perAppSec.map((k, v) => MapEntry(k, (v / 60).floor()));
+      await _box?.put(_perAppUsedMinutesKey, jsonEncode(perAppMin));
       debugPrint(
         'TimeBankService: +$totalDeltaSeconds sec delta → totalUsedSeconds=$newUsedSeconds ($newUsedMinutes min)',
       );
@@ -378,10 +421,22 @@ class TimeBankService {
     Map<String, String> displayNames,
   ) async {
     await _box?.put(_blockedPackageNamesKey, jsonEncode(packageNames));
-    await _box?.put(_blockedPackageDisplayNamesKey, jsonEncode(displayNames));
-    // Reset the native baseline when the app list changes so delta-sync
-    // doesn't carry over usage from removed apps.
-    await _saveNativeBaseline({});
+    
+    final existingNames = blockedPackageDisplayNames;
+    existingNames.addAll(displayNames);
+    await _box?.put(_blockedPackageDisplayNamesKey, jsonEncode(existingNames));
+
+    // Preserve existing native baselines for remaining packages
+    // so delta-sync doesn't misinterpret existing native stats as new deltas.
+    final oldBaseline = _nativeBaseline;
+    final newBaseline = <String, int>{};
+    for (final pkg in packageNames) {
+      if (oldBaseline.containsKey(pkg)) {
+        newBaseline[pkg] = oldBaseline[pkg]!;
+      }
+    }
+    await _saveNativeBaseline(newBaseline);
+
     _onBlockedAppsChanged?.call();
   }
 
@@ -396,53 +451,48 @@ class TimeBankService {
 
   // ── Emergency Snooze (3-minute pass) ──────────────────────────────────────
 
-  /// Cost in steps for one emergency 3-minute pass.
-  static const int emergencyPassCostSteps = 1000;
+  static const String _emergencyPassBonusMinutesKey = 'emergencyPassBonusMinutes';
+  static const String _hasUsedEmergencyPassTodayKey = 'hasUsedEmergencyPassToday';
 
   /// Duration of one emergency pass in minutes.
   static const int emergencyPassDurationMinutes = 3;
 
-  /// Returns remaining minutes on active emergency pass (0 if none).
-  int get _emergencyPassActiveMinutes {
-    final expiry = (_box?.get(_emergencyPassExpiryKey) as int?);
-    if (expiry == null) return 0;
-    final remaining = expiry - DateTime.now().millisecondsSinceEpoch;
-    if (remaining <= 0) return 0;
-    return (remaining / 60000).ceil();
-  }
+  /// Legacy shim maintained for compatibility.
+  static const int emergencyPassCostSteps = 0;
 
-  /// Whether an emergency pass is currently active.
-  bool get hasActiveEmergencyPass => _emergencyPassActiveMinutes > 0;
+  /// Whether the user has already used their 1 emergency pass today.
+  bool get hasUsedEmergencyPassToday =>
+      (_box?.get(_hasUsedEmergencyPassTodayKey) as bool?) ?? false;
 
-  /// Returns the emergency pass expiry time, or null if none active.
-  DateTime? get emergencyPassExpiry {
-    if (!hasActiveEmergencyPass) return null;
-    final expiry = _box?.get(_emergencyPassExpiryKey) as int?;
-    if (expiry == null) return null;
-    return DateTime.fromMillisecondsSinceEpoch(expiry);
-  }
+  /// Whether an emergency pass is available today (no walking required, max 1/day).
+  bool get canUseEmergencyPass => !hasUsedEmergencyPassToday;
 
-  /// Attempt to consume an emergency 3-minute pass.
-  /// Returns true if successful (enough steps & no active pass).
-  /// Deducts [emergencyPassCostSteps] from the total step balance.
-  Future<bool> consumeEmergencyPass() async {
-    if (hasActiveEmergencyPass) return false;
-    if (totalStepsWalked < emergencyPassCostSteps) return false;
+  /// Legacy shims maintained for UI compatibility.
+  bool get hasActiveEmergencyPass => false;
+  DateTime? get emergencyPassExpiry => null;
 
-    final newSteps = totalStepsWalked - emergencyPassCostSteps;
-    await _box?.put(_totalStepsKey, newSteps);
+  /// Activates a 3-minute emergency pass (1 use per day, available without walking).
+  /// Adds +3 minutes directly to earnedMinutes balance.
+  /// Returns true if successfully activated.
+  Future<bool> activateEmergencyPass() async {
+    if (hasUsedEmergencyPassToday) return false;
 
-    final expiry = DateTime.now()
-        .add(const Duration(minutes: emergencyPassDurationMinutes))
-        .millisecondsSinceEpoch;
-    await _box?.put(_emergencyPassExpiryKey, expiry);
+    await _box?.put(_hasUsedEmergencyPassTodayKey, true);
+    final currentBonus = emergencyPassBonusMinutes;
+    await _box?.put(
+      _emergencyPassBonusMinutesKey,
+      currentBonus + emergencyPassDurationMinutes,
+    );
 
     debugPrint(
       'TimeBankService: Emergency pass activated! '
-      '-$emergencyPassCostSteps steps for ${emergencyPassDurationMinutes}min unlock.',
+      '+${emergencyPassDurationMinutes}min added to earned time (1/day limit).',
     );
     return true;
   }
+
+  /// Alias for activateEmergencyPass
+  Future<bool> consumeEmergencyPass() => activateEmergencyPass();
 
   // ── 7-Day Daily History ────────────────────────────────────────────────────
 
@@ -451,10 +501,8 @@ class TimeBankService {
     final raw = _box?.get(_dailyHistoryKey) as String?;
     if (raw == null) return [];
     try {
-      final list = jsonDecode(raw) as List<dynamic>;
-      return list
-          .map((e) => DailyRecord.fromJson(e as Map<String, dynamic>))
-          .toList();
+      final decoded = jsonDecode(raw) as List<dynamic>;
+      return decoded.map((item) => DailyRecord.fromJson(item as Map<String, dynamic>)).toList();
     } catch (_) {
       return [];
     }
@@ -502,10 +550,8 @@ class TimeBankService {
   // ── Daily reset ───────────────────────────────────────────────────────────
 
   Future<void> resetDailyIfNeeded() async {
-    final now = DateTime.now();
+    final today = _todayString;
     final lastReset = _box?.get(_lastResetDayKey) as String?;
-    final today =
-        '${now.year}-${now.month.toString().padLeft(2, '0')}-${now.day.toString().padLeft(2, '0')}';
     if (lastReset != today) {
       // Before resetting, archive today's totals to history
       if (lastReset != null) {
@@ -519,16 +565,34 @@ class TimeBankService {
       await _box?.put(_usedMinutesKey, 0);
       // Also clear second-precision key so yesterday's seconds don't bleed in.
       await _box?.put(_usedSecondsKey, 0);
+      await _box?.put(_emergencyPassBonusMinutesKey, 0);
+      await _box?.put(_hasUsedEmergencyPassTodayKey, false);
       await _box?.put(_perAppUsedMinutesKey, jsonEncode({}));
+      await _box?.put(_perAppUsedSecondsKey, jsonEncode({}));
       await _saveNativeBaseline({});
       await _box?.put(_lastResetDayKey, today);
-      // Reset both native-limit tracking keys so BlockerService re-arms fresh.
+      await _box?.put(_isFreshResetPendingKey, true);
+
+      // Reset native SQLite usage counters for all monitored apps
+      try {
+        await ZoAppBlocker.instance.resetAllDailyUsage();
+      } catch (e) {
+        debugPrint('ZoAppBlocker.resetAllDailyUsage error: $e');
+      }
+
+      // Reset native-limit tracking keys so BlockerService re-arms fresh.
       await _box?.put(lastSetRemainingMinutesKey, -1);
       // Reset the earned-minutes guard in BlockerService so that
       // setAppTimeLimit is re-programmed with the fresh budget on the new day.
-      // Import is avoided via a late reference resolved at call-time.
       _onDailyReset?.call();
+      _onBlockedAppsChanged?.call();
     }
+  }
+
+  /// Forces an immediate daily reset for manual testing.
+  Future<void> forceDailyResetNow() async {
+    await _box?.put(_lastResetDayKey, 'FORCE_TEST_RESET');
+    await resetDailyIfNeeded();
   }
 
   /// Saves the given day's snapshot into the rolling 7-day history.

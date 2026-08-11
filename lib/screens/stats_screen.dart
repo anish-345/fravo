@@ -1,4 +1,4 @@
-﻿import 'dart:io';
+import 'dart:io';
 import 'dart:ui';
 import 'package:fl_chart/fl_chart.dart';
 import 'package:flutter/material.dart';
@@ -1438,6 +1438,7 @@ class _StatsScreenState extends State<StatsScreen>
               final pkg = entry.key;
               final name = entry.value;
               final usedMins = _timeBank.getUsedMinutesForApp(pkg);
+              final usedStr = _timeBank.getFormattedUsedTimeForApp(pkg);
               final totalEarned = _timeBank.earnedMinutes;
               final appRatio = totalEarned > 0
                   ? (usedMins / totalEarned).clamp(0.0, 1.0)
@@ -1487,7 +1488,7 @@ class _StatsScreenState extends State<StatsScreen>
                               borderRadius: BorderRadius.circular(12),
                             ),
                             child: Text(
-                              '$usedMins min',
+                              usedStr,
                               style: const TextStyle(
                                 color: Color(0xFF1A1A2E),
                                 fontSize: 12,

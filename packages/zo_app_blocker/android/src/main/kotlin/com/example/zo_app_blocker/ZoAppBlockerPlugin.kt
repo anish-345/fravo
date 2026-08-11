@@ -131,15 +131,7 @@ class ZoAppBlockerPlugin : FlutterPlugin, MethodCallHandler, ActivityAware {
                 // this as a reconciliation: replace the native set, not merge.
                 prefs.saveBlockedApps(wanted)
                 prefs.setBlockAll(false)
-                // Mark each app's time-limit record as exhausted (usedSeconds = limitSeconds).
-                // This ensures the Accessibility Service time-limit branch sees remaining = 0
-                // and immediately shows the block screen when the app is opened.
-                for (pkg in identifiers) {
-                    prefs.markTimeLimitExhausted(pkg)
-                }
-                // Prune time-limit rows for packages no longer in the list.
-                // Without this, an app the user removed from the block list keeps
-                // its exhausted row and the Accessibility Service re-blocks it on launch.
+                // Prune time-limit rows for packages no longer monitored.
                 for (row in prefs.getAppTimeLimits()) {
                     val pkg = row["packageName"] as? String ?: continue
                     if (pkg !in wanted) {
@@ -278,6 +270,15 @@ class ZoAppBlockerPlugin : FlutterPlugin, MethodCallHandler, ActivityAware {
                             AppBlockerAccessibilityService.instance?.checkCurrentForegroundApp()
                         }
                     }
+                    CoroutineScope(Dispatchers.Main).launch {
+                        result.success(null)
+                    }
+                }
+            }
+
+            "resetAllDailyUsage" -> {
+                CoroutineScope(Dispatchers.IO).launch {
+                    prefs.resetAllDailyUsage()
                     CoroutineScope(Dispatchers.Main).launch {
                         result.success(null)
                     }
