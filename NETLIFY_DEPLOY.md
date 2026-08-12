@@ -1,4 +1,4 @@
-# Deploying Fravo Privacy Policy to Netlify
+# Deploying the Fravo Website to Netlify
 
 This document provides step-by-step instructions for deploying the privacy policy site to Netlify.
 
@@ -61,8 +61,10 @@ Then select:
 
 ## After Deployment
 
-Your privacy policy will be accessible at:
+Your site will be accessible at:
 - `https://fravo-privacy.netlify.app` (or your chosen name)
+  - `/` — marketing homepage / landing page
+  - `/privacy` — privacy policy
 
 ## Manual Configuration
 
@@ -85,13 +87,13 @@ After deployment, verify:
 
 ## Updating the Privacy Policy
 
-When you update `public/index.html`:
+When you update `public/privacy/index.html`::
 
 ```powershell
 netlify deploy --prod
 ```
 
-This will redeploy with the new content.
+This will redeploy with the new content. The homepage lives in `public/index.html`.
 
 ## Custom Domain (Optional)
 
@@ -127,8 +129,9 @@ npm install -g netlify-cli
 
 ## Files Created
 
-- `public/index.html` - Privacy policy HTML page
-- `netlify.toml` - Netlify configuration
+- `public/index.html` - Marketing homepage (landing page)
+- `public/privacy/index.html` - Privacy policy HTML page
+- `netlify.toml` - Netlify configuration (landing + `/privacy` rewrite)
 - `NETLIFY_DEPLOY.md` - This guide
 
 ## Support

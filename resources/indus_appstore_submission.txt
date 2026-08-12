@@ -1,0 +1,82 @@
+========================================================
+FRAVO - INDUS APPSTORE SUBMISSION COPY
+(Paste-ready. Portal: https://developer.indusappstore.com/)
+========================================================
+
+TITLE
+--------------------------------------------------------
+Fravo — Walk to Earn Screen Time
+
+SHORT DESCRIPTION (max 80 chars)
+--------------------------------------------------------
+Walk 1,000 steps to earn screen time. Block Instagram,
+TikTok & more when time runs out.
+
+LONG DESCRIPTION
+--------------------------------------------------------
+Fravo turns your daily steps into screen time you can feel.
+
+HOW IT WORKS
+1. Pick the apps you scroll too much (Instagram, TikTok, YouTube & more)
+2. Walk 1,000 steps to earn screen time
+3. When your time runs out, Fravo blocks the app until you earn more
+
+WHY FRAVO
+• Real app blocker — actually locks the app, not just a reminder
+• Reward, not punishment — the more you walk, the more you get
+• Works with your phone's step counter + Health Connect
+• 15+ popular apps ready to pick, or add any app
+• All data stays on your device. No account. No ads.
+
+Built for people who want a healthier relationship with their phone.
+
+--------------------------------------------------------
+CATEGORY
+--------------------------------------------------------
+Health & Fitness (or Lifestyle)
+
+CONTENT RATING / TARGET GROUP
+--------------------------------------------------------
+Everyone / General audience
+
+--------------------------------------------------------
+APP FILE
+--------------------------------------------------------
+Signed release APK or AAB (JKS keystore accepted)
+Build: flutter build apk --release   (APK)
+       flutter build appbundle --release   (AAB)
+
+--------------------------------------------------------
+ASSETS
+--------------------------------------------------------
+- Icon: 1024x1024 PNG (reuse launcher icon)
+- Screenshots: 3-8, 1080x1920 (9:16), real screens, no device frames
+- Optional promo: 30-60s video + banner
+
+--------------------------------------------------------
+DEV VERIFICATION (have ready)
+--------------------------------------------------------
+- PAN / Voter ID / Driving Licence
+- Proof of address
+- Verified email + mobile (OTP)
+
+DATA SAFETY / PERMISSIONS (same as Play)
+--------------------------------------------------------
+- Usage Access (read screen time per app)
+- Display over other apps (block screen overlay)
+- Activity Recognition (step tracking)
+- Health Connect read (accurate step count)
+- Notifications (Fravo Active status)
+
+--------------------------------------------------------
+HINDI SAMPLE (seed for 12-language localization)
+--------------------------------------------------------
+Title: Fravo — चलें और स्क्रीन टाइम कमाएं
+
+Short: 1,000 कदम चलें और स्क्रीन टाइम कमाएं। समय खत्म होने पर
+इंस्टाग्राम, टिकटॉक ब्लॉक हो जाते हैं।
+
+Long (first para): Fravo आपके रोज़ के कदमों को स्क्रीन टाइम में
+बदलता है। 1,000 कदम चलें और अपने पसंदीदा ऐप्स के लिए मिनट कमाएं।
+समय खत्म होने पर ऐप ब्लॉक हो जाता है — और आप और चलकर समय कमा सकते
+हैं। सज़ा नहीं, इनाम।

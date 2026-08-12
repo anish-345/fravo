@@ -1,0 +1,433 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=5.0">
+    <title>Privacy Policy - Fravo</title>
+    <link rel="icon" href="../app_icon.png" type="image/png">
+    
+    <!-- Custom Typography -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Outfit:wght@500;600;700;800&display=swap" rel="stylesheet">
+
+    <style>
+        :root {
+            --bg: #ecf0f5;
+            --card: #ffffff;
+            --line: #e2e8f0;
+            --text: #1a202c;
+            --muted: #4b5563;
+            --accent-1: #4a90e2;
+            --accent-2: #357abd;
+            --green: #10b981;
+            --radius-lg: 24px;
+            --radius-md: 16px;
+        }
+
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        
+        body {
+            font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            line-height: 1.6;
+            color: var(--text);
+            background: var(--bg);
+            min-height: 100vh;
+            padding: 32px 16px;
+            -webkit-font-smoothing: antialiased;
+            overflow-x: hidden;
+            width: 100%;
+        }
+        
+        .container {
+            max-width: 900px;
+            margin: 0 auto;
+            background: var(--card);
+            border-radius: var(--radius-lg);
+            box-shadow: 0 20px 50px rgba(74, 144, 226, 0.12), 0 0 0 1px rgba(0, 0, 0, 0.02);
+            overflow: hidden;
+            border: 1px solid var(--line);
+            width: 100%;
+        }
+        
+        .header {
+            background: linear-gradient(135deg, var(--accent-1), var(--accent-2));
+            color: white;
+            padding: 48px 32px;
+            text-align: center;
+            position: relative;
+        }
+        
+        .header-brand {
+            display: inline-flex;
+            align-items: center;
+            gap: 12px;
+            margin-bottom: 14px;
+        }
+        
+        .header-brand img {
+            width: 44px;
+            height: 44px;
+            border-radius: 12px;
+            box-shadow: 0 4px 12px rgba(0,0,0,0.15);
+            border: 2px solid rgba(255,255,255,0.8);
+        }
+
+        .header h1 {
+            font-family: 'Outfit', sans-serif;
+            font-size: clamp(2rem, 4.5vw, 2.6rem);
+            font-weight: 800;
+            margin-bottom: 8px;
+            letter-spacing: -.02em;
+        }
+        
+        .header .subtitle {
+            font-size: 1.05em;
+            opacity: 0.92;
+            font-weight: 500;
+        }
+        
+        .content {
+            padding: 40px 36px;
+        }
+        
+        .meta {
+            background: var(--bg);
+            padding: 14px 20px;
+            border-radius: var(--radius-md);
+            margin-bottom: 28px;
+            font-size: 0.9em;
+            color: var(--muted);
+            border-left: 4px solid var(--accent-1);
+            font-weight: 600;
+        }
+        
+        h2 {
+            font-family: 'Outfit', sans-serif;
+            color: var(--text);
+            font-size: clamp(1.4rem, 3vw, 1.8em);
+            font-weight: 700;
+            margin: 32px 0 16px;
+            padding-bottom: 8px;
+            border-bottom: 2px solid var(--line);
+        }
+        
+        h3 {
+            font-family: 'Outfit', sans-serif;
+            color: var(--text);
+            font-size: 1.25em;
+            font-weight: 700;
+            margin: 22px 0 12px;
+        }
+        
+        p {
+            margin-bottom: 16px;
+            color: var(--muted);
+            font-size: 0.98rem;
+        }
+        
+        ul {
+            margin-left: 24px;
+            margin-bottom: 16px;
+        }
+        
+        li {
+            margin-bottom: 8px;
+            color: var(--muted);
+            font-size: 0.98rem;
+        }
+        
+        .table-container {
+            overflow-x: auto;
+            margin: 24px 0;
+            border-radius: var(--radius-md);
+            border: 1px solid var(--line);
+            box-shadow: 0 4px 6px rgba(0,0,0,0.01);
+            width: 100%;
+        }
+        
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            background: #ffffff;
+            min-width: 480px;
+        }
+        
+        th, td {
+            padding: 14px 18px;
+            text-align: left;
+            border-bottom: 1px solid var(--line);
+            font-size: 0.92rem;
+        }
+        
+        th {
+            background: var(--accent-1);
+            color: white;
+            font-weight: 600;
+        }
+        
+        tr:last-child td {
+            border-bottom: none;
+        }
+        
+        tr:hover td {
+            background: rgba(74, 144, 226, 0.03);
+        }
+        
+        .note {
+            background: rgba(74, 144, 226, 0.06);
+            border-left: 4px solid var(--accent-1);
+            padding: 18px;
+            margin: 24px 0;
+            border-radius: var(--radius-md);
+            color: var(--text);
+            font-size: 0.95rem;
+        }
+        
+        .contact {
+            background: linear-gradient(135deg, var(--accent-1), var(--accent-2));
+            color: white;
+            padding: 36px 24px;
+            border-radius: var(--radius-lg);
+            margin-top: 36px;
+            text-align: center;
+            box-shadow: 0 8px 24px rgba(74, 144, 226, 0.2);
+        }
+        
+        .contact h3 {
+            color: white;
+            margin-bottom: 14px;
+        }
+        
+        .contact p {
+            color: rgba(255, 255, 255, 0.9);
+            margin: 4px 0;
+        }
+        
+        .contact .email {
+            font-size: 1.2em;
+            font-weight: 700;
+            margin-top: 10px;
+        }
+        
+        footer {
+            text-align: center;
+            padding: 24px;
+            color: var(--muted);
+            font-size: 0.88em;
+            font-weight: 500;
+            border-top: 1px solid var(--line);
+        }
+        
+        @media (max-width: 640px) {
+            body {
+                padding: 16px 12px;
+            }
+            .header {
+                padding: 32px 20px;
+            }
+            .content {
+                padding: 24px 18px;
+            }
+            th, td {
+                padding: 10px 12px;
+                font-size: 0.85rem;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <p style="margin:0 0 16px;"><a href="../" style="color:rgba(255,255,255,.9);text-decoration:none;font-weight:600;display:inline-flex;align-items:center;gap:6px;">← Back to Fravo</a></p>
+            <div class="header-brand">
+                <img src="../app_icon.png" alt="Fravo Logo">
+            </div>
+            <h1>Privacy Policy</h1>
+            <p class="subtitle">Fravo - Step-to-Screen Time Manager</p>
+        </div>
+        
+        <div class="content">
+            <div class="meta">
+                Last updated: August 8, 2026
+            </div>
+            
+            <h2>1. Introduction</h2>
+            <p>Fravo ("we", "our", or "us") is a productivity app that converts your daily steps into screen time for selected apps. This Privacy Policy explains what data Fravo accesses, how it is used, and what controls you have over it.</p>
+            <p>By using Fravo, you agree to the practices described in this policy.</p>
+            
+            <h2>2. Information We Collect</h2>
+            <p>Fravo is designed to work entirely <strong>on your device</strong>. We do not operate servers, create user accounts, or transmit your personal data to any external service.</p>
+            
+            <h3>2.1 Step Count and Physical Activity Data</h3>
+            <ul>
+                <li><strong>What we access:</strong> Your daily step count from the device's motion sensors.</li>
+                <li><strong>Why:</strong> To calculate how many minutes of screen time you have earned.</li>
+                <li><strong>How it is stored:</strong> Step counts are saved locally on your device using the Hive database library. Data is never uploaded or shared.</li>
+            </ul>
+            
+            <h3>2.2 App Usage Statistics</h3>
+            <ul>
+                <li><strong>What we access:</strong> Screen-time usage data for the apps you choose to block (e.g., Instagram, TikTok, YouTube). This requires the "Usage Access" (PACKAGE_USAGE_STATS) permission.</li>
+                <li><strong>Why:</strong> To measure how much of your earned screen time you have consumed and enforce the time limit when it runs out.</li>
+                <li><strong>How it is stored:</strong> Usage data is processed in memory and stored locally on your device. It is never uploaded or shared.</li>
+            </ul>
+            
+            <h3>2.3 Installed App Information</h3>
+            <ul>
+                <li><strong>What we access:</strong> The list of installed apps on your device, retrieved via Android's PackageManager and targeted package visibility queries, to let you select which apps to block.</li>
+                <li><strong>Why:</strong> To populate the app selector with apps installed on your device.</li>
+                <li><strong>How it is stored:</strong> This information is used only at the time of selection and is not stored beyond the package names you explicitly choose to block.</li>
+            </ul>
+            
+            <h3>2.4 Device Information</h3>
+            <ul>
+                <li><strong>What we access:</strong> Basic device information (via <code>device_info_plus</code>) to detect battery optimization settings.</li>
+                <li><strong>Why:</strong> To adapt the step-sync interval and avoid excessive background battery drain.</li>
+                <li><strong>How it is stored:</strong> Not stored. Used at runtime only.</li>
+            </ul>
+
+            <h3>2.5 App Blocking Engine</h3>
+            <ul>
+                <li><strong>Accessibility Service:</strong> Fravo uses an Android Accessibility Service (<code>AppBlockerAccessibilityService</code>) that monitors window-state changes to detect when a blocked or time-limited app comes to the foreground. When detected, it displays the block-screen overlay and can terminate the app process.</li>
+                <li><strong>Foreground Service:</strong> A special-use foreground service (<code>AppBlockerForegroundService</code>) polls Android's UsageStatsManager every 1.5 seconds (only while the screen is on) to track which app is currently in use and enforce time limits in real time.</li>
+                <li><strong>Process termination:</strong> When a blocked app is opened or its time limit is exhausted, Fravo calls <code>ActivityManager.killBackgroundProcesses()</code> to terminate the app and redirect the user to the home screen.</li>
+                <li><strong>How it is stored:</strong> Blocked app lists, time-limit records, and the block-activity log are persisted locally in SQLite. No blocking data is transmitted off-device.</li>
+            </ul>
+            
+            <h2>3. Permissions Used</h2>
+            <div class="table-container">
+                <table>
+                    <thead>
+                        <tr>
+                            <th>Android Permission</th>
+                            <th>Purpose</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        <tr>
+                            <td><code>ACTIVITY_RECOGNITION</code></td>
+                            <td>Access hardware pedometer step count</td>
+                        </tr>
+                        <tr>
+                            <td><code>PACKAGE_USAGE_STATS</code></td>
+                            <td>Read screen time for blocked apps</td>
+                        </tr>
+                        <tr>
+                            <td><code>SYSTEM_ALERT_WINDOW</code></td>
+                            <td>Display the block screen overlay when a time limit is reached</td>
+                        </tr>
+                        <tr>
+                            <td><code>FOREGROUND_SERVICE</code></td>
+                            <td>Keep the blocker running reliably in the background</td>
+                        </tr>
+                        <tr>
+                            <td><code>FOREGROUND_SERVICE_SPECIAL_USE</code></td>
+                            <td>Run a special-use foreground service for real-time app usage monitoring (Android 11+)</td>
+                        </tr>
+                        <tr>
+                            <td><code>POST_NOTIFICATIONS</code></td>
+                            <td>Show the "Fravo Active" status notification</td>
+                        </tr>
+                        <tr>
+                            <td><code>RECEIVE_BOOT_COMPLETED</code></td>
+                            <td>Restart the blocker service after device reboot</td>
+                        </tr>
+                        <tr>
+                            <td><code>KILL_BACKGROUND_PROCESSES</code></td>
+                            <td>Terminate blocked apps that are force-opened while the time limit is active</td>
+                        </tr>
+                    </tbody>
+                </table>
+            </div>
+            <p>All permissions are used solely for the features described above. No permission is used to collect, sell, or share your data.</p>
+            <div class="note">
+                <strong>Note:</strong> The Accessibility Service must be manually enabled by the user in <em>Settings → Accessibility → Fravo App Blocker Engine</em>. No accessibility data — including window content, text, or screen state — is collected, transmitted, or stored. The service only receives window-state-change events to detect app switches.
+            </div>
+            
+            <h2>4. Data Storage and Retention</h2>
+            <ul>
+                <li><strong>Flutter layer (Hive):</strong> Step counts, earned screen time, used screen time, blocked app list, and reward settings are stored locally using the Hive database library.</li>
+                <li><strong>Native blocking engine (SQLite):</strong> Blocked app lists, daily time-limit records, used seconds, and the block-activity log are stored locally in a SQLite database (<code>zo_app_blocker.db</code>). This database is also used by the native Accessibility Service, so it persists and functions even when the Flutter app is not running.</li>
+                <li>Data resets automatically at <strong>midnight local time</strong> each day.</li>
+                <li>You can delete all stored data by uninstalling the app.</li>
+                <li>Fravo does not use cloud storage, remote databases, or any external data service.</li>
+            </ul>
+            
+            <h2>5. Third-Party Services</h2>
+            <p>Fravo does <strong>not</strong> integrate with any third-party analytics, advertising, or data-collection services.</p>
+            <p>The following open-source packages are used internally; none of them collect or transmit user data:</p>
+            <div class="table-container">
+                <table>
+                    <thead>
+                        <tr>
+                            <th>Package</th>
+                            <th>Purpose</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        <tr>
+                            <td><code>zo_app_blocker</code></td>
+                            <td>Android app blocking via native overlay</td>
+                        </tr>
+                        <tr>
+                            <td><code>pedometer</code></td>
+                            <td>Accessing the hardware step sensor</td>
+                        </tr>
+                        <tr>
+                            <td><code>permission_handler</code></td>
+                            <td>Requesting Android runtime permissions</td>
+                        </tr>
+                        <tr>
+                            <td><code>hive</code> / <code>hive_flutter</code></td>
+                            <td>Local on-device storage</td>
+                        </tr>
+                        <tr>
+                            <td><code>device_info_plus</code></td>
+                            <td>Battery optimization detection</td>
+                        </tr>
+                        <tr>
+                            <td><code>fl_chart</code>, <code>shimmer</code>, <code>glassmorphism</code>, <code>flutter_animate</code></td>
+                            <td>UI components only</td>
+                        </tr>
+                    </tbody>
+                </table>
+            </div>
+            
+            <h2>6. Children's Privacy</h2>
+            <p>Fravo does not knowingly collect any personal information from children under the age of 13 (or the applicable age of digital consent in your jurisdiction). Because all data stays on the device and no account registration is required, there is no mechanism by which we would receive such information.</p>
+            
+            <h2>7. Data Security</h2>
+            <p>Since all data is stored locally on your device, its security depends on the security of your device (screen lock, encryption, etc.). We do not transmit data over a network and therefore there is no server-side data at risk.</p>
+            
+            <h2>8. Your Rights and Choices</h2>
+            <ul>
+                <li><strong>Access:</strong> All data Fravo holds is visible within the app itself (step counts, screen time, settings).</li>
+                <li><strong>Deletion:</strong> Uninstalling Fravo removes all locally stored data.</li>
+                <li><strong>Permissions:</strong> You can revoke any permission at any time in your device's <strong>Settings → Apps → Fravo → Permissions</strong>. Revoking a permission will disable the related feature.</li>
+            </ul>
+            
+            <h2>9. Changes to This Policy</h2>
+            <p>We may update this Privacy Policy from time to time. Any changes will be reflected in the "Last updated" date at the top of this document. Continued use of the app after an update constitutes acceptance of the revised policy.</p>
+            
+            <div class="contact">
+                <h3>10. Contact Us</h3>
+                <p>If you have any questions or concerns about this Privacy Policy, please contact us at:</p>
+                <p class="email"><a href="mailto:fravo@avionti.in" style="color:inherit;text-decoration:underline;">fravo@avionti.in</a></p>
+                <p><strong>App:</strong> Fravo</p>
+                <p><strong>Package:</strong> avionti.fravo</p>
+            </div>
+            
+            <p style="margin-top: 36px;"><em>This privacy policy applies to the Android version of Fravo.</em></p>
+        </div>
+        
+        <footer>
+            <p>Fravo</p>
+        </footer>
+    </div>
+</body>
+</html>

@@ -1,0 +1,56 @@
+========================================================
+FRAVO - SOFTONIC SUBMISSION COPY
+(Paste-ready. Portal: https://publishing-center.softonic.com/)
+========================================================
+
+TITLE
+--------------------------------------------------------
+Fravo - Walk to Earn Screen Time
+
+INTRO PARAGRAPH
+--------------------------------------------------------
+Fravo turns your daily steps into screen time: walk 1,000 steps and earn
+minutes on the apps you love. When your time runs out, Fravo blocks the
+app until you earn more - a reward-based digital wellbeing app, not a guilt trip.
+
+FEATURES (bullets)
+--------------------------------------------------------
+- Walk to earn screen time: 1,000 steps = configurable minutes (5-60)
+- Real app blocker with a full-screen block overlay (not just reminders)
+- Block Instagram, TikTok, YouTube & any app by package name
+- 15+ popular app presets, ready in one tap
+- Dual-mode step tracking: hardware pedometer + Health Connect
+- Real-time usage sync and midnight reset for a fresh start
+- Emergency pass: spend 1,000 steps for 3 extra minutes in a pinch
+- Privacy-first: no account, no ads, data stays on your device
+
+BOTTOM LINE
+--------------------------------------------------------
+A healthier phone habit, earned one step at a time. Fravo is the screen
+time app that rewards movement instead of punishing scrolling.
+
+--------------------------------------------------------
+APP FILE
+--------------------------------------------------------
+Signed release APK (Softonic hosts APK, not AAB)
+Build: flutter build apk --release
+
+--------------------------------------------------------
+ASSETS
+--------------------------------------------------------
+- Screenshots: 2-4, 1080x1920 (9:16), real screens
+- Icon: 1024x1024 PNG
+
+--------------------------------------------------------
+LANGUAGES
+--------------------------------------------------------
+English mandatory. Use the built-in auto-translate tool for
+Hindi / Spanish / French etc. as second tier.
+
+--------------------------------------------------------
+REVIEW & UPDATES
+--------------------------------------------------------
+- All listings pass a quality/compliance review before going live
+- Push updates via the Publishing Center: new APK + version note
+  (e.g. "v1.0.0 - initial release")
+- Keep version notes accurate; inflated claims may get rejected
