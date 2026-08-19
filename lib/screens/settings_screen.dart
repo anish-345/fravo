@@ -1,27 +1,22 @@
 import 'package:flutter/material.dart';
-
 import '../services/blocker_service.dart';
+import '../services/growth_service.dart';
 import '../services/health_service.dart';
+import '../services/onesignal_service.dart';
+import '../services/revenuecat_service.dart';
 import '../services/time_bank.dart';
 import '../widgets/permission_status_tile.dart';
 import '../widgets/premium_glass_system.dart';
+import 'paywall_screen.dart';
 
-/// App version — kept in sync with `pubspec.yaml` (1.0.0+4). Hardcoded to
-/// avoid pulling in `package_info_plus`.
-const String kFravoAppVersion = '1.0.0+4';
+/// App version — production release.
+const String kFravoAppVersion = '1.0.0';
 
 /// Full settings screen reached from the home gear icon.
-///
-/// Sections: About (version), Rewards (mins-per-1k rate + daily step goal),
-/// Blocked apps management, Privacy policy, and the required Android
-/// permissions status. Replaces the old `_showSettingsDialog` dialog.
 class SettingsScreen extends StatefulWidget {
   final TimeBankService timeBank;
   final BlockerService blockerService;
   final HealthService healthService;
-
-  /// Called when the user taps "Manage apps" — the dashboard pops this screen
-  /// and opens the app selector so the user lands back on the home dashboard.
   final VoidCallback onManageApps;
 
   const SettingsScreen({
@@ -48,6 +43,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
   @override
   void initState() {
     super.initState();
+    OneSignalService.instance.setScreenTrigger('settings');
     _reloadPermissions();
   }
 
@@ -67,7 +63,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
     if (!mounted) return;
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(
-        content: const Text('Reward rate updated'),
+        content: const Text('Reward rate updated!'),
         behavior: SnackBarBehavior.floating,
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
       ),
@@ -78,7 +74,11 @@ class _SettingsScreenState extends State<SettingsScreen> {
     final picked = await showDialog<int>(
       context: context,
       builder: (ctx) => SimpleDialog(
-        title: const Text('Daily step goal'),
+        title: const Text(
+          'Daily Step Goal',
+          style: TextStyle(fontWeight: FontWeight.bold, fontSize: 18),
+        ),
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
         children: _goalOptions
             .map(
               (g) => SimpleDialogOption(
@@ -91,18 +91,18 @@ class _SettingsScreenState extends State<SettingsScreen> {
                           : Icons.radio_button_off_rounded,
                       size: 20,
                       color: g == _stepGoal
-                          ? const Color(0xFF4A90E2)
+                          ? const Color(0xFF10B981)
                           : const Color(0xFF94A3B8),
                     ),
                     const SizedBox(width: 12),
                     Text(
                       g >= 1000
-                          ? '${(g / 1000).toStringAsFixed(0)}k steps'
-                          : '$g steps',
-                      style: const TextStyle(
+                          ? '${(g / 1000).toStringAsFixed(0)},000 steps / day'
+                          : '$g steps / day',
+                      style: TextStyle(
                         fontSize: 14,
-                        fontWeight: FontWeight.w600,
-                        color: Color(0xFF1A202C),
+                        fontWeight: g == _stepGoal ? FontWeight.bold : FontWeight.w500,
+                        color: const Color(0xFF1E293B),
                       ),
                     ),
                   ],
@@ -134,73 +134,273 @@ class _SettingsScreenState extends State<SettingsScreen> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(title: const Text('Settings'), centerTitle: true),
+      backgroundColor: const Color(0xFFF8FAFC),
+      appBar: AppBar(
+        title: const Text(
+          'Settings',
+          style: TextStyle(fontWeight: FontWeight.bold, color: Color(0xFF0F172A)),
+        ),
+        centerTitle: true,
+        backgroundColor: Colors.transparent,
+        elevation: 0,
+      ),
       body: SafeArea(
         child: ListView(
-          padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 16),
+          padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 8),
           children: [
-            _buildAboutCard(),
-            const SizedBox(height: 16),
+            // 1. Membership & Referral
+            _buildSectionLabel('MEMBERSHIP & GROWTH', Icons.stars_rounded, const Color(0xFF3B82F6)),
+            const SizedBox(height: 8),
+            _buildPremiumCard(),
+            const SizedBox(height: 12),
+            _buildReferralGrowthCard(),
+            const SizedBox(height: 24),
+
+            // 2. Walking & Focus Budget
+            _buildSectionLabel('WALKING & FOCUS BUDGET', Icons.directions_walk_rounded, const Color(0xFF10B981)),
+            const SizedBox(height: 8),
             _buildRewardsCard(),
-            const SizedBox(height: 16),
+            const SizedBox(height: 12),
             _buildBlockedAppsCard(),
-            const SizedBox(height: 16),
-            _buildPrivacyCard(),
-            const SizedBox(height: 16),
+            const SizedBox(height: 24),
+
+            // 3. System & Permissions
+            _buildSectionLabel('SYSTEM & PERMISSIONS', Icons.security_rounded, const Color(0xFF6366F1)),
+            const SizedBox(height: 8),
             _buildPermissionsCard(),
             const SizedBox(height: 24),
+
+            // 4. Support & Privacy
+            _buildSectionLabel('SUPPORT & LEGAL', Icons.info_outline_rounded, const Color(0xFF64748B)),
+            const SizedBox(height: 8),
+            _buildRateAppCard(),
+            const SizedBox(height: 12),
+            _buildPrivacyCard(),
+            const SizedBox(height: 24),
+
+            // Footer Version
+            Center(
+              child: Text(
+                'Fravo v$kFravoAppVersion • Made for mindful focus',
+                style: const TextStyle(
+                  fontSize: 12,
+                  color: Color(0xFF94A3B8),
+                  fontWeight: FontWeight.w500,
+                ),
+              ),
+            ),
+            const SizedBox(height: 32),
           ],
         ),
       ),
     );
   }
 
-  // ── About / version ────────────────────────────────────────────────────────
-
-  Widget _buildAboutCard() {
-    return UltraGlassContainer(
-      borderRadius: 24,
-      padding: const EdgeInsets.all(20),
-      child: Row(
-        children: [
-          Container(
-            width: 54,
-            height: 54,
-            decoration: BoxDecoration(
-              gradient: const LinearGradient(
-                colors: [Color(0xFF4A90E2), Color(0xFF10B981)],
-                begin: Alignment.topLeft,
-                end: Alignment.bottomRight,
-              ),
-              borderRadius: BorderRadius.circular(16),
-            ),
-            child: const Icon(
-              Icons.directions_walk_rounded,
-              color: Colors.white,
-              size: 30,
-            ),
+  Widget _buildSectionLabel(String title, IconData icon, Color color) {
+    return Row(
+      children: [
+        Icon(icon, size: 16, color: color),
+        const SizedBox(width: 8),
+        Text(
+          title,
+          style: TextStyle(
+            fontSize: 11,
+            fontWeight: FontWeight.w800,
+            letterSpacing: 1.1,
+            color: color,
           ),
-          const SizedBox(width: 14),
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                const Text(
-                  'Fravo',
-                  style: TextStyle(
-                    fontSize: 18,
-                    fontWeight: FontWeight.w800,
-                    color: Color(0xFF1A202C),
+        ),
+      ],
+    );
+  }
+
+  // ── Premium Subscription Card ──────────────────────────────────────────────
+
+  Widget _buildPremiumCard() {
+    return ValueListenableBuilder<bool>(
+      valueListenable: RevenueCatService.instance.isPremiumNotifier,
+      builder: (context, isPremium, _) {
+        return PuffyGlassContainer(
+          borderRadius: 20,
+          padding: const EdgeInsets.all(18),
+          tintColor: isPremium ? const Color(0xFFECFDF5) : const Color(0xFFEFF6FF),
+          tintAlpha: 0.95,
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Row(
+                children: [
+                  Container(
+                    padding: const EdgeInsets.all(10),
+                    decoration: BoxDecoration(
+                      color: isPremium ? const Color(0xFF10B981) : const Color(0xFF3B82F6),
+                      borderRadius: BorderRadius.circular(14),
+                    ),
+                    child: Icon(
+                      isPremium ? Icons.verified_rounded : Icons.workspace_premium_rounded,
+                      color: Colors.white,
+                      size: 22,
+                    ),
+                  ),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          isPremium ? 'Fravo Pro Active 🏆' : 'Upgrade to Fravo Pro',
+                          style: const TextStyle(
+                            fontSize: 16,
+                            fontWeight: FontWeight.bold,
+                            color: Color(0xFF1E293B),
+                          ),
+                        ),
+                        const SizedBox(height: 2),
+                        Text(
+                          isPremium
+                              ? 'Unlimited apps, custom reward rates & zero video ads unlocked.'
+                              : 'Block unlimited distraction apps and earn guilt-free screen time.',
+                          style: const TextStyle(
+                            fontSize: 12,
+                            color: Color(0xFF64748B),
+                            height: 1.3,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 14),
+              SizedBox(
+                width: double.infinity,
+                height: 44,
+                child: ElevatedButton(
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: isPremium ? const Color(0xFF10B981) : const Color(0xFF3B82F6),
+                    foregroundColor: Colors.white,
+                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
+                    elevation: 0,
+                  ),
+                  onPressed: () {
+                    Navigator.push(
+                      context,
+                      MaterialPageRoute(
+                        builder: (_) => const PaywallScreen(source: 'settings'),
+                      ),
+                    );
+                  },
+                  child: Text(
+                    isPremium ? 'View Commitment Plan' : 'View Commitment Plans (7 Days Free)',
+                    style: const TextStyle(fontSize: 13, fontWeight: FontWeight.bold),
                   ),
                 ),
-                const SizedBox(height: 2),
-                Text(
-                  'Version $kFravoAppVersion',
-                  style: const TextStyle(
-                    fontSize: 13,
-                    color: Color(0xFF4B5563),
-                    fontWeight: FontWeight.w500,
+              ),
+            ],
+          ),
+        );
+      },
+    );
+  }
+
+  // ── Viral Referral Growth Card ──────────────────────────────────────────
+
+  Widget _buildReferralGrowthCard() {
+    final code = GrowthService.instance.referralCode;
+
+    return PuffyGlassContainer(
+      borderRadius: 20,
+      padding: const EdgeInsets.all(18),
+      tintColor: const Color(0xFFF0FDF4),
+      tintAlpha: 0.95,
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Container(
+                padding: const EdgeInsets.all(10),
+                decoration: BoxDecoration(
+                  color: const Color(0xFF10B981).withValues(alpha: 0.15),
+                  borderRadius: BorderRadius.circular(14),
+                ),
+                child: const Icon(
+                  Icons.card_giftcard_rounded,
+                  color: Color(0xFF10B981),
+                  size: 20,
+                ),
+              ),
+              const SizedBox(width: 12),
+              const Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      'Give 7 Days, Get 7 Days Pro',
+                      style: TextStyle(
+                        fontSize: 15,
+                        fontWeight: FontWeight.bold,
+                        color: Color(0xFF1E293B),
+                      ),
+                    ),
+                    SizedBox(height: 2),
+                    Text(
+                      'Share your invite code for 7 days free Fravo Pro.',
+                      style: TextStyle(fontSize: 12, color: Color(0xFF64748B)),
+                    ),
+                  ],
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 14),
+          Container(
+            padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+            decoration: BoxDecoration(
+              color: Colors.white,
+              borderRadius: BorderRadius.circular(14),
+              border: Border.all(color: const Color(0xFFBBF7D0)),
+            ),
+            child: Row(
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              children: [
+                Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    const Text(
+                      'YOUR INVITE CODE',
+                      style: TextStyle(
+                        fontSize: 9,
+                        fontWeight: FontWeight.bold,
+                        letterSpacing: 1.1,
+                        color: Color(0xFF166534),
+                      ),
+                    ),
+                    const SizedBox(height: 2),
+                    Text(
+                      code,
+                      style: const TextStyle(
+                        fontSize: 16,
+                        fontWeight: FontWeight.w900,
+                        letterSpacing: 1.5,
+                        color: Color(0xFF0F172A),
+                      ),
+                    ),
+                  ],
+                ),
+                ElevatedButton.icon(
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: const Color(0xFF10B981),
+                    foregroundColor: Colors.white,
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(12),
+                    ),
+                    elevation: 0,
+                    padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
                   ),
+                  onPressed: () => GrowthService.instance.showReferralSheet(context),
+                  icon: const Icon(Icons.share_rounded, size: 15),
+                  label: const Text('Invite', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 12)),
                 ),
               ],
             ),
@@ -213,120 +413,97 @@ class _SettingsScreenState extends State<SettingsScreen> {
   // ── Rewards settings ───────────────────────────────────────────────────────
 
   Widget _buildRewardsCard() {
-    return UltraGlassContainer(
-      borderRadius: 24,
-      padding: const EdgeInsets.all(20),
+    return PuffyGlassContainer(
+      borderRadius: 20,
+      padding: const EdgeInsets.all(18),
+      tintColor: Colors.white,
+      tintAlpha: 0.9,
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          const _SectionHeader(
-            icon: Icons.redeem_rounded,
-            color: Color(0xFFF59E0B),
-            title: 'REWARDS',
-          ),
-          const SizedBox(height: 16),
-          // ── Mins per 1k steps ──
+          // Mins per 1k steps
           Row(
             children: [
               const Expanded(
                 child: Text(
-                  'Mins per 1,000 Steps',
+                  'Step-to-Time Ratio',
                   style: TextStyle(
                     fontSize: 14,
                     fontWeight: FontWeight.w700,
-                    color: Color(0xFF1F2937),
+                    color: Color(0xFF1E293B),
                   ),
                 ),
               ),
               Container(
-                padding: const EdgeInsets.symmetric(
-                  horizontal: 10,
-                  vertical: 4,
-                ),
+                padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
                 decoration: BoxDecoration(
-                  color: const Color(0xFF2D3748),
-                  borderRadius: BorderRadius.circular(12),
+                  color: const Color(0xFF10B981),
+                  borderRadius: BorderRadius.circular(10),
                 ),
                 child: Text(
-                  '$_minutesPer1k min',
+                  '$_minutesPer1k min / 1k steps',
                   style: const TextStyle(
                     color: Colors.white,
                     fontWeight: FontWeight.bold,
-                    fontSize: 13,
+                    fontSize: 12,
                   ),
                 ),
               ),
             ],
           ),
+          const SizedBox(height: 8),
           Slider(
-            value: _minutesPer1k.toDouble(),
+            value: _minutesPer1k.toDouble().clamp(5, 60),
             min: 5,
             max: 60,
-            divisions: 11, // 5, 10, 15, … 60
-            activeColor: const Color(0xFF2D3748),
-            label: '$_minutesPer1k mins / 1k steps',
+            divisions: 11,
+            activeColor: const Color(0xFF10B981),
+            inactiveColor: const Color(0xFFE2E8F0),
             onChanged: (val) {
+              final isPremium = RevenueCatService.instance.isPremium;
               final snapped = (val / 5).round() * 5;
+              if (!isPremium && snapped < 25) {
+                setState(() => _minutesPer1k = 25);
+                _showProRateLockDialog();
+                return;
+              }
               setState(() => _minutesPer1k = snapped.clamp(5, 60));
             },
             onChangeEnd: (_) => _saveRewardRate(),
           ),
-          Text(
-            '1,000 steps = $_minutesPer1k min of screen time',
-            style: const TextStyle(fontSize: 12, color: Color(0xFF4B5563)),
-            textAlign: TextAlign.center,
+          Center(
+            child: Text(
+              RevenueCatService.instance.isPremium
+                  ? '1,000 steps walked = $_minutesPer1k minutes earned (All rates unlocked)'
+                  : '1,000 steps = $_minutesPer1k min • Free tier: 25–60 min (Pro: unlock strict 5–20 min)',
+              style: const TextStyle(fontSize: 12, color: Color(0xFF64748B)),
+            ),
           ),
-          const Divider(height: 28),
-          // ── Daily step goal ──
+          const Divider(height: 24),
+          // Daily step goal
           Material(
-            color: const Color(0xFF1F2937).withValues(alpha: 0.04),
-            borderRadius: BorderRadius.circular(14),
+            color: const Color(0xFFF1F5F9),
+            borderRadius: BorderRadius.circular(12),
             clipBehavior: Clip.antiAlias,
             child: InkWell(
               onTap: _pickStepGoal,
               child: Padding(
-                padding: const EdgeInsets.symmetric(
-                  horizontal: 14,
-                  vertical: 12,
-                ),
+                padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
                 child: Row(
                   children: [
-                    const Icon(
-                      Icons.flag_rounded,
-                      size: 20,
-                      color: Color(0xFF4A90E2),
-                    ),
+                    const Icon(Icons.flag_rounded, size: 18, color: Color(0xFF10B981)),
                     const SizedBox(width: 10),
                     Expanded(
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          const Text(
-                            'Daily step goal',
-                            style: TextStyle(
-                              fontSize: 14,
-                              fontWeight: FontWeight.w700,
-                              color: Color(0xFF1F2937),
-                            ),
-                          ),
-                          const SizedBox(height: 2),
-                          Text(
-                            _stepGoal >= 1000
-                                ? '${(_stepGoal / 1000).toStringAsFixed(0)}k steps'
-                                : '$_stepGoal steps',
-                            style: const TextStyle(
-                              fontSize: 12.5,
-                              color: Color(0xFF4B5563),
-                            ),
-                          ),
-                        ],
+                      child: Text(
+                        'Daily Goal: ${_stepGoal >= 1000 ? "${(_stepGoal / 1000).toStringAsFixed(0)},000 steps" : "$_stepGoal steps"}',
+                        style: const TextStyle(
+                          fontSize: 13.5,
+                          fontWeight: FontWeight.w600,
+                          color: Color(0xFF1E293B),
+                        ),
                       ),
                     ),
-                    const Icon(
-                      Icons.chevron_right_rounded,
-                      size: 22,
-                      color: Color(0xFF4A90E2),
-                    ),
+                    const Icon(Icons.chevron_right_rounded, size: 20, color: Color(0xFF94A3B8)),
                   ],
                 ),
               ),
@@ -345,174 +522,105 @@ class _SettingsScreenState extends State<SettingsScreen> {
         ? 'No apps selected'
         : apps.take(3).map((p) => widget.timeBank.displayNameFor(p)).join(', ');
 
-    return UltraGlassContainer(
-      borderRadius: 24,
-      padding: const EdgeInsets.all(20),
+    return PuffyGlassContainer(
+      borderRadius: 20,
+      padding: const EdgeInsets.all(18),
+      tintColor: Colors.white,
+      tintAlpha: 0.9,
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          const _SectionHeader(
-            icon: Icons.block_rounded,
-            color: Color(0xFFEF4444),
-            title: 'BLOCKED APPS',
+          Row(
+            children: [
+              const Expanded(
+                child: Text(
+                  'Blocked Distraction Apps',
+                  style: TextStyle(
+                    fontSize: 14,
+                    fontWeight: FontWeight.w700,
+                    color: Color(0xFF1E293B),
+                  ),
+                ),
+              ),
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                decoration: BoxDecoration(
+                  color: const Color(0xFFEF4444).withValues(alpha: 0.1),
+                  borderRadius: BorderRadius.circular(8),
+                ),
+                child: Text(
+                  '${apps.length} locked',
+                  style: const TextStyle(
+                    fontSize: 11,
+                    fontWeight: FontWeight.bold,
+                    color: Color(0xFFEF4444),
+                  ),
+                ),
+              ),
+            ],
           ),
-          const SizedBox(height: 12),
+          const SizedBox(height: 6),
           Text(
             apps.isEmpty
-                ? 'Nothing blocked yet. Pick apps to lock behind your step budget.'
-                : summary +
-                      (apps.length > 3 ? ' +${apps.length - 3} more' : ''),
-            style: const TextStyle(
-              fontSize: 13,
-              height: 1.4,
-              color: Color(0xFF4B5563),
-            ),
+                ? 'Nothing locked yet. Pick apps to earn screen time with steps.'
+                : summary + (apps.length > 3 ? ' +${apps.length - 3} more' : ''),
+            style: const TextStyle(fontSize: 12.5, color: Color(0xFF64748B)),
           ),
-          const SizedBox(height: 14),
-          Material(
-            color: const Color(0xFF4A90E2).withValues(alpha: 0.08),
-            borderRadius: BorderRadius.circular(14),
-            clipBehavior: Clip.antiAlias,
-            child: InkWell(
-              onTap: widget.onManageApps,
-              child: SizedBox(
-                height: 48,
-                width: double.infinity,
-                child: Row(
-                  mainAxisAlignment: MainAxisAlignment.center,
-                  children: [
-                    const Icon(
-                      Icons.swap_horiz_rounded,
-                      size: 18,
-                      color: Color(0xFF4A90E2),
-                    ),
-                    const SizedBox(width: 8),
-                    const Text(
-                      'Manage Apps',
-                      style: TextStyle(
-                        fontSize: 14,
-                        fontWeight: FontWeight.w700,
-                        color: Color(0xFF4A90E2),
-                      ),
-                    ),
-                  ],
-                ),
+          const SizedBox(height: 12),
+          SizedBox(
+            width: double.infinity,
+            height: 40,
+            child: OutlinedButton.icon(
+              style: OutlinedButton.styleFrom(
+                side: const BorderSide(color: Color(0xFFE2E8F0)),
+                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+              ),
+              onPressed: widget.onManageApps,
+              icon: const Icon(Icons.apps_rounded, size: 16, color: Color(0xFF3B82F6)),
+              label: const Text(
+                'Manage Blocked Apps',
+                style: TextStyle(fontSize: 13, fontWeight: FontWeight.w600, color: Color(0xFF1E293B)),
               ),
             ),
           ),
         ],
       ),
-    );
-  }
-
-  // ── Privacy policy ─────────────────────────────────────────────────────────
-
-  Widget _buildPrivacyCard() {
-    return UltraGlassContainer(
-      borderRadius: 24,
-      padding: const EdgeInsets.all(20),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          const _SectionHeader(
-            icon: Icons.privacy_tip_rounded,
-            color: Color(0xFF10B981),
-            title: 'PRIVACY POLICY',
-          ),
-          const SizedBox(height: 12),
-          const Text(
-            'Fravo is privacy-first. All your data — steps, screen time, blocked apps and settings — is stored only on this device. Nothing leaves your phone.',
-            style: TextStyle(
-              fontSize: 13,
-              height: 1.5,
-              color: Color(0xFF4B5563),
-            ),
-          ),
-          const SizedBox(height: 12),
-          _privacyBullet(
-            'It is used to measure your steps and enforce your screen-time budget.',
-          ),
-          const SizedBox(height: 6),
-          _privacyBullet(
-            'The accessibility, display-over-apps, usage-access and notification permissions are used solely for blocking restricted apps — never for data collection.',
-          ),
-          const SizedBox(height: 6),
-          _privacyBullet(
-            'No account, no analytics, no ads, no tracking. Clearing the app data deletes everything.',
-          ),
-        ],
-      ),
-    );
-  }
-
-  Widget _privacyBullet(String text) {
-    return Row(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        const Padding(
-          padding: EdgeInsets.only(top: 5),
-          child: Icon(
-            Icons.check_circle_rounded,
-            size: 14,
-            color: Color(0xFF10B981),
-          ),
-        ),
-        const SizedBox(width: 8),
-        Expanded(
-          child: Text(
-            text,
-            style: const TextStyle(
-              fontSize: 12.5,
-              height: 1.4,
-              color: Color(0xFF4B5563),
-            ),
-          ),
-        ),
-      ],
     );
   }
 
   // ── Required Android permissions ───────────────────────────────────────────
 
   Widget _buildPermissionsCard() {
-    return UltraGlassContainer(
-      borderRadius: 24,
-      padding: const EdgeInsets.all(20),
+    return PuffyGlassContainer(
+      borderRadius: 20,
+      padding: const EdgeInsets.all(18),
+      tintColor: Colors.white,
+      tintAlpha: 0.9,
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          const _SectionHeader(
-            icon: Icons.security_rounded,
-            color: Color(0xFF4A90E2),
-            title: 'REQUIRED PERMISSIONS',
-          ),
-          const SizedBox(height: 12),
           if (!_permissionsLoaded)
-            const Padding(
-              padding: EdgeInsets.symmetric(vertical: 12),
-              child: Center(
-                child: SizedBox(
-                  width: 22,
-                  height: 22,
-                  child: CircularProgressIndicator(strokeWidth: 2.5),
-                ),
+            const Center(
+              child: Padding(
+                padding: EdgeInsets.symmetric(vertical: 12),
+                child: CircularProgressIndicator(strokeWidth: 2.5),
               ),
             )
           else ...[
             PermissionStatusTile(
-              label: 'Physical Activity / Step Tracking',
+              label: 'Step Tracking & Activity',
               isGranted: _permissions['activityRecognition'] ?? false,
               onTap: () => _requestPermission(PermissionKind.activity),
             ),
             const SizedBox(height: 8),
             PermissionStatusTile(
-              label: 'Accessibility Service (Required)',
+              label: 'App Blocker Accessibility',
               isGranted: _permissions['accessibility'] ?? false,
               onTap: () => _requestPermission(PermissionKind.accessibility),
             ),
             const SizedBox(height: 8),
             PermissionStatusTile(
-              label: 'Display Over Apps',
+              label: 'Display Over Other Apps',
               isGranted: _permissions['overlay'] ?? false,
               onTap: () => _requestPermission(PermissionKind.overlay),
             ),
@@ -527,38 +635,129 @@ class _SettingsScreenState extends State<SettingsScreen> {
       ),
     );
   }
-}
 
-enum PermissionKind { activity, accessibility, overlay, notification }
+  // ── Rate on Google Play Card ─────────────────────────────────────────────
 
-/// Small section label used on top of settings cards.
-class _SectionHeader extends StatelessWidget {
-  final IconData icon;
-  final Color color;
-  final String title;
-
-  const _SectionHeader({
-    required this.icon,
-    required this.color,
-    required this.title,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    return Row(
-      children: [
-        Icon(icon, size: 16, color: color),
-        const SizedBox(width: 8),
-        Text(
-          title,
-          style: const TextStyle(
-            fontSize: 12,
-            fontWeight: FontWeight.w800,
-            letterSpacing: 1.2,
-            color: Color(0xFF1F2937),
+  Widget _buildRateAppCard() {
+    return PuffyGlassContainer(
+      borderRadius: 20,
+      padding: const EdgeInsets.all(16),
+      tintColor: Colors.white,
+      tintAlpha: 0.9,
+      child: Row(
+        children: [
+          Container(
+            padding: const EdgeInsets.all(10),
+            decoration: BoxDecoration(
+              color: const Color(0xFF3B82F6).withValues(alpha: 0.12),
+              borderRadius: BorderRadius.circular(12),
+            ),
+            child: const Icon(Icons.star_rounded, color: Color(0xFF3B82F6), size: 22),
           ),
+          const SizedBox(width: 12),
+          const Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  'Rate Fravo on Google Play',
+                  style: TextStyle(
+                    fontSize: 14,
+                    fontWeight: FontWeight.bold,
+                    color: Color(0xFF1E293B),
+                  ),
+                ),
+                SizedBox(height: 2),
+                Text(
+                  'Enjoying the app? Leave a review!',
+                  style: TextStyle(fontSize: 11.5, color: Color(0xFF64748B)),
+                ),
+              ],
+            ),
+          ),
+          IconButton(
+            icon: const Icon(Icons.open_in_new_rounded, color: Color(0xFF3B82F6), size: 20),
+            onPressed: () => GrowthService.instance.openPlayStoreReview(),
+          ),
+        ],
+      ),
+    );
+  }
+
+  // ── Privacy policy ─────────────────────────────────────────────────────────
+
+  Widget _buildPrivacyCard() {
+    return PuffyGlassContainer(
+      borderRadius: 20,
+      padding: const EdgeInsets.all(18),
+      tintColor: Colors.white,
+      tintAlpha: 0.9,
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          const Row(
+            children: [
+              Icon(Icons.lock_outline_rounded, size: 16, color: Color(0xFF10B981)),
+              SizedBox(width: 8),
+              Text(
+                'Privacy & Data Protection',
+                style: TextStyle(
+                  fontSize: 14,
+                  fontWeight: FontWeight.bold,
+                  color: Color(0xFF1E293B),
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 8),
+          const Text(
+            'Your step counts and app blocking preferences are processed and stored strictly on your device. We never sell your personal data.',
+            style: TextStyle(fontSize: 12, height: 1.4, color: Color(0xFF64748B)),
+          ),
+        ],
+      ),
+    );
+  }
+
+  void _showProRateLockDialog() {
+    showDialog(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(24)),
+        title: const Row(
+          children: [
+            Icon(Icons.workspace_premium_rounded, color: Color(0xFFF59E0B), size: 24),
+            SizedBox(width: 8),
+            Text('Strict Focus Mode', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
+          ],
         ),
-      ],
+        content: const Text(
+          'Hardcore reward rates below 25 minutes per 1,000 steps (5–20 min / 1k steps) require Fravo Pro.\n\nUpgrade to Pro to lock in strict digital detox rates, unlimited app blocking, and ad-free emergency passes!',
+          style: TextStyle(fontSize: 13, color: Color(0xFF4B5563), height: 1.4),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx),
+            child: const Text('Got it'),
+          ),
+          FilledButton(
+            style: FilledButton.styleFrom(
+              backgroundColor: const Color(0xFF3B82F6),
+              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
+            ),
+            onPressed: () {
+              Navigator.pop(ctx);
+              Navigator.push(
+                context,
+                MaterialPageRoute(builder: (_) => const PaywallScreen(source: 'strict_rate_limit')),
+              );
+            },
+            child: const Text('Unlock Pro (7 Days Free)'),
+          ),
+        ],
+      ),
     );
   }
 }
+
+enum PermissionKind { activity, accessibility, overlay, notification }

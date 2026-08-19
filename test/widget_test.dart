@@ -125,13 +125,13 @@ void main() {
         expect(insta.name, 'Instagram');
       });
 
-      test('CommonApps includes TikTok', () {
-        final tiktok = CommonApps.presets.firstWhere(
-          (p) => p.packageName == 'com.zhiliaoapp.musically',
+      test('CommonApps includes YouTube', () {
+        final yt = CommonApps.presets.firstWhere(
+          (p) => p.packageName == 'com.google.android.youtube',
           orElse: () =>
               const PresetApp(name: '', packageName: '', category: ''),
         );
-        expect(tiktok.name, 'TikTok');
+        expect(yt.name, 'YouTube');
       });
 
       test('All preset packageNames are unique', () {

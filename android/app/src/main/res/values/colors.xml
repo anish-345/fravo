@@ -2,4 +2,17 @@
 <resources>
     <color name="ic_launcher_background">#4A90E2</color>
     <color name="notification_icon_color">#4A90E2</color>
+
+    <!-- Fravo Home Screen Widget Color Palette (Light Theme) -->
+    <color name="widget_bg_start">#FFFFFF</color>
+    <color name="widget_bg_end">#F1F5F9</color>
+    <color name="widget_border">#E2E8F0</color>
+    <color name="widget_card_bg">#F8FAFC</color>
+
+    <color name="widget_text_primary">#0F172A</color>
+    <color name="widget_text_secondary">#64748B</color>
+
+    <color name="widget_steps_accent">#059669</color>
+    <color name="widget_time_bank_accent">#0284C7</color>
+    <color name="widget_status_active">#059669</color>
 </resources>

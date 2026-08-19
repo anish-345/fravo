@@ -1,0 +1,48 @@
+{
+  "project_info": {
+    "project_number": "278377966042",
+    "project_id": "pictopdf",
+    "storage_bucket": "pictopdf.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:278377966042:android:4223cb62475d21490478e3",
+        "android_client_info": {
+          "package_name": "avionti.fravo"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyCNE8dHHoZUUEhgkox4BzD_x5ijvZ4oQTg"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    },
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:278377966042:android:7613ea917a2154150478e3",
+        "android_client_info": {
+          "package_name": "com.avionti.PicToPDF"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyCNE8dHHoZUUEhgkox4BzD_x5ijvZ4oQTg"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}

@@ -28,35 +28,39 @@ Recommended option covers: walk, screen time, stop doomscrolling. Keep the "=" s
 
 ## 3. Long description (≤ 4,000 chars)
 
-<!-- LONGDESC-START -->
-Walk to earn screen time. Fravo turns your daily steps into minutes on the apps you love — no willpower required. Move more, unlock your apps, and scroll with intention instead of guilt.
+Use the box below to quickly copy-paste the long description directly into the Google Play Console:
 
-**How it works**
-1. Pick your apps — Instagram, TikTok, YouTube, games, anything that steals your time.
-2. Walk to earn screen time — 1,000 steps earns you minutes, from a gentle 5 to a solid 60 per 1,000 steps.
-3. When your balance runs out, Fravo blocks those apps until you move again. Simple deal: your body is the password.
+```text
+Walk to earn screen time! Fravo is the ultimate app blocker and screen time tracker that turns your daily steps into minutes on the apps you love. No willpower required. Move more, walk to unlock apps, and stop doomscrolling with the power of positive reinforcement.
 
-**Not another screen time limiter**
-Most screen time limiters rely on willpower and timers you can dismiss. Fravo flips the script — instead of restriction, you get reward. Earned screen time feels like a treat, not a punishment, and it gets you walking every single day. It's a dopamine detox that builds focus and fitness at the same time.
+HOW IT WORKS:
+1. Choose the apps you want to limit (block Instagram, block TikTok, block YouTube, games, or any social media app).
+2. Walk to earn screen time. You set the rate—like 1,000 steps for 30 minutes of app use.
+3. Once your earned balance runs out, Fravo blocks those apps until you move again. Your body is the password!
 
-**Block the apps that steal your day**
-Use Fravo as an app blocker for social media and endless video: block Instagram, block TikTok, block YouTube, block games — or block any app by its package name. Custom app blocking means only the apps you choose are limited. Messaging and essential apps stay free, so you're never locked out of real life.
+REWARD, NOT RESTRICTION
+Most screen time limiters rely on willpower and timers that you can easily dismiss. Fravo flips the script. Instead of boring restriction, you get a rewarding digital detox. Earned screen time feels like a treat, not a punishment. It builds healthy focus, fitness, and screen habits that last.
 
-**Stop doomscrolling, start living**
-- Break phone addiction with positive reinforcement, not shame.
-- A digital detox that fits real life — walk to work, unlock your feed.
-- Dual-mode step tracking: hardware pedometer for instant steps, Health Connect for accuracy.
-- Real-time usage sync keeps your balance honest, every 30 seconds.
-- Daily reset at midnight — steps and screen time start fresh each morning.
+FEATURES THAT HELP YOU QUIT PHONE ADDICTION:
+• Custom App Blocker: Block social media, games, and streaming apps by choice. Messaging and essential tools stay unlocked.
+• Walk to Unlock Apps: Step counter syncs in real-time. Walk to earn screen time and build a healthy walking habit.
+• Dual-Mode Step Tracker: Uses your device's hardware pedometer for instant step counts or connects to Health Connect for absolute accuracy.
+• Hard Blocking: Actually blocks apps with a native overlay screen that only disappears when you walk. No cheat codes.
+• Live Screen Time Tracker: Updates your balance and app usage every 30 seconds to keep your habits honest.
+• Midnight Reset: A fresh start every day. Your steps and screen time balance reset at midnight to motivate you daily.
 
-**Track your progress**
-Fravo is a screen time tracker and walking rewards app in one. Watch your steps climb, your screen time drop, and your earned balance grow. Every day is a little win: less scrolling, more moving.
+100% PRIVATE & SECURE:
+Your digital wellbeing is personal. Fravo runs entirely on-device:
+• No account setup required
+• No cloud tracking or camera usage
+• Your steps, screen time data, and blocked apps never leave your phone
 
-**Private by design**
-Fravo runs entirely on your device. No account. No cloud. No camera. Your steps, your screen time, and your blocked apps never leave your phone. Walk to unlock apps without handing over your data.
+Whether you want to limit screen time, stop doomscrolling, or simply walk more, Fravo turns your phone habit into a fitness habit. 
 
-Whether you want to limit screen time, stop doomscrolling, or simply walk more, Fravo turns your phone habit into a fitness habit. Take the first step — download Fravo and earn your screen time today.
-<!-- LONGDESC-END -->
+Take the first step—download Fravo, walk to unlock apps, and earn your screen time today!
+```
+
+---
 
 **Keyword coverage map** (intent-verified from research):
 - Tier 1 (title terms reinforced): walk to earn screen time, earn screen time, walk to unlock apps

@@ -20,3 +20,13 @@
 -keepattributes *Annotation*
 -keepattributes Signature
 -keepattributes SourceFile,LineNumberTable
+
+# RevenueCat & Google Play Billing
+-keep class com.revenuecat.purchases.** { *; }
+-dontwarn com.revenuecat.purchases.**
+-keep class com.android.billingclient.** { *; }
+-dontwarn com.android.billingclient.**
+
+# OneSignal
+-keep class com.onesignal.** { *; }
+-dontwarn com.onesignal.**

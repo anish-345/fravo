@@ -4,10 +4,16 @@ import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 
 import 'screens/onboarding_screen.dart';
+import 'screens/paywall_screen.dart';
 import 'screens/settings_screen.dart';
 import 'screens/stats_screen.dart';
+import 'services/admob_service.dart';
+import 'services/app_services.dart';
 import 'services/blocker_service.dart';
+import 'services/growth_service.dart';
 import 'services/health_service.dart';
+import 'services/onesignal_service.dart';
+import 'services/revenuecat_service.dart';
 import 'services/time_bank.dart';
 import 'widgets/app_selector_sheet.dart';
 import 'widgets/blocking_permission_flow.dart';
@@ -19,6 +25,7 @@ Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
 
   await TimeBankService.instance.init();
+  await AppServices.instance.initialize();
   await BlockerService.instance.initialize();
   await HealthService.instance.initPedometerListener();
   await BlockerService.instance.evaluateBlockState();
@@ -55,14 +62,15 @@ class _FravoAppState extends State<FravoApp> {
     return MaterialApp(
       title: 'Fravo',
       debugShowCheckedModeBanner: false,
+      themeMode: ThemeMode.light,
       theme: ThemeData(
         brightness: Brightness.light,
-        scaffoldBackgroundColor: const Color(0xFFECF0F5), // Ultra-light gray
-        colorScheme: ColorScheme.light(
-          primary: const Color(0xFF4A90E2),
-          secondary: const Color(0xFF10B981),
-          surface: const Color(0xFFF8FAFB),
-          error: const Color(0xFFEF4444),
+        scaffoldBackgroundColor: const Color(0xFFF8FAFB),
+        colorScheme: const ColorScheme.light(
+          primary: Color(0xFF4A90E2),
+          secondary: Color(0xFF10B981),
+          surface: Color(0xFFF8FAFB),
+          error: Color(0xFFEF4444),
         ),
         appBarTheme: const AppBarTheme(
           backgroundColor: Colors.transparent,
@@ -147,6 +155,35 @@ class _FravoDashboardState extends State<FravoDashboard>
   void initState() {
     super.initState();
     WidgetsBinding.instance.addObserver(this);
+
+    // Set OneSignal screen trigger so in-app messages can target the dashboard
+    OneSignalService.instance.setScreenTrigger('dashboard');
+
+    // Register OneSignal deep link routing listener
+    OneSignalService.instance.onDeepLinkTriggered = (targetScreen) {
+      if (!mounted) return;
+      switch (targetScreen) {
+        case 'paywall':
+          Navigator.push(
+            context,
+            MaterialPageRoute(builder: (_) => const PaywallScreen(source: 'deep_link')),
+          );
+          break;
+        case 'settings':
+          _openSettings();
+          break;
+        case 'stats':
+          Navigator.push(
+            context,
+            MaterialPageRoute(builder: (_) => const StatsScreen()),
+          );
+          break;
+        case 'referral':
+        case 'invite':
+          GrowthService.instance.showReferralSheet(context);
+          break;
+      }
+    };
 
     WidgetsBinding.instance.addPostFrameCallback((_) async {
       await _refresh();
@@ -413,21 +450,25 @@ class _FravoDashboardState extends State<FravoDashboard>
   }
 
   Future<void> _showEmergencySnooze() async {
+    final isPremium = RevenueCatService.instance.isPremium;
+    final maxPasses = _timeBank.maxAllowedEmergencyPasses;
+    final usedToday = _timeBank.emergencyPassCountToday;
+
     if (!_timeBank.canUseEmergencyPass) {
+      final msg = isPremium
+          ? 'You have used all 3 Emergency Passes today. Resets at midnight!'
+          : 'You have used your 1 Emergency Pass today. Upgrade to Pro for 3 daily passes!';
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
-          content: const Text(
-            'You have already used your 1 Emergency Pass today. Resets at midnight!',
-          ),
+          content: Text(msg),
           backgroundColor: const Color(0xFFEF4444),
           behavior: SnackBarBehavior.floating,
-          shape: RoundedRectangleBorder(
-            borderRadius: BorderRadius.circular(12),
-          ),
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
         ),
       );
       return;
     }
+
     showDialog(
       context: context,
       builder: (ctx) => AlertDialog(
@@ -435,6 +476,7 @@ class _FravoDashboardState extends State<FravoDashboard>
         title: const Row(
           children: [
             Icon(Icons.timer_outlined, color: Color(0xFFEF4444), size: 22),
+            SizedBox(width: 8),
             Text(
               'Emergency 3-Min Pass',
               style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16),
@@ -445,18 +487,20 @@ class _FravoDashboardState extends State<FravoDashboard>
           mainAxisSize: MainAxisSize.min,
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            const Text(
-              'Need a quick urgent access?',
-              style: TextStyle(
+            Text(
+              isPremium ? 'Pro Pass (${usedToday + 1}/$maxPasses Today)' : 'Free Pass (1/1 Today)',
+              style: const TextStyle(
                 fontWeight: FontWeight.bold,
                 fontSize: 14,
                 color: Color(0xFF1A202C),
               ),
             ),
             const SizedBox(height: 8),
-            const Text(
-              'Use an Emergency Pass for 3 minutes of temporary access.\n\nThis costs 1,000 steps from your balance. Use wisely!',
-              style: TextStyle(
+            Text(
+              isPremium
+                  ? 'As a Premium Pro user, you get 3 ad-free Emergency Passes per day! Instantly unlocks 3 minutes of screen time.'
+                  : 'Free users get 1 Emergency Pass per day by watching 1 short Rewarded Video Ad.',
+              style: const TextStyle(
                 fontSize: 13,
                 color: Color(0xFF4B5563),
                 height: 1.5,
@@ -474,18 +518,22 @@ class _FravoDashboardState extends State<FravoDashboard>
               ),
               child: Row(
                 children: [
-                  const Icon(
-                    Icons.warning_amber_rounded,
-                    color: Color(0xFFF59E0B),
+                  Icon(
+                    isPremium ? Icons.star_rounded : Icons.ondemand_video_rounded,
+                    color: const Color(0xFFF59E0B),
                     size: 18,
                   ),
                   const SizedBox(width: 8),
-                  Text(
-                    '+${TimeBankService.emergencyPassDurationMinutes} minutes added to your earned time',
-                    style: const TextStyle(
-                      fontSize: 12,
-                      fontWeight: FontWeight.w600,
-                      color: Color(0xFFF59E0B),
+                  Expanded(
+                    child: Text(
+                      isPremium
+                          ? '+3 minutes instant bonus (Pass ${usedToday + 1} of 3)'
+                          : 'Watch 1 Rewarded Ad to claim +3 minutes',
+                      style: const TextStyle(
+                        fontSize: 12,
+                        fontWeight: FontWeight.w600,
+                        color: Color(0xFFF59E0B),
+                      ),
                     ),
                   ),
                 ],
@@ -498,42 +546,78 @@ class _FravoDashboardState extends State<FravoDashboard>
             onPressed: () => Navigator.pop(ctx),
             child: const Text('Cancel'),
           ),
-          FilledButton(
+          FilledButton.icon(
             style: FilledButton.styleFrom(
-              backgroundColor: const Color(0xFFEF4444),
+              backgroundColor: isPremium ? const Color(0xFF10B981) : const Color(0xFF3B82F6),
+              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
             ),
             onPressed: () async {
-              final success = await _timeBank.consumeEmergencyPass();
-              await _blockerService.evaluateBlockState();
-              if (ctx.mounted) Navigator.pop(ctx);
-              if (mounted) {
-                await _pullUsageAndRefresh();
-              }
-              if (ctx.mounted) {
-                ScaffoldMessenger.of(ctx).showSnackBar(
-                  SnackBar(
-                    content: Text(
-                      success
-                          ? '+3 minutes added to your earned screen time!'
-                          : 'Could not activate pass. Check your steps balance.',
-                    ),
-                    backgroundColor: success
-                        ? const Color(0xFF10B981)
-                        : const Color(0xFFEF4444),
-                    behavior: SnackBarBehavior.floating,
-                    shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(12),
-                    ),
-                  ),
-                );
+              Navigator.pop(ctx);
+              if (isPremium) {
+                // Instant claim for Pro users!
+                await _grantEmergencyPass();
+              } else {
+                // Rewarded Ad flow for Free users!
+                _showRewardedAdDialog();
               }
             },
-            child: const Text('Use Emergency Pass'),
+            icon: Icon(isPremium ? Icons.flash_on_rounded : Icons.play_circle_fill_rounded, size: 18),
+            label: Text(isPremium ? 'Claim Pass Now' : 'Watch Ad to Unlock'),
           ),
         ],
       ),
     );
   }
+
+  Future<void> _grantEmergencyPass() async {
+    final success = await _timeBank.consumeEmergencyPass();
+    await _blockerService.evaluateBlockState();
+    if (mounted) {
+      await _pullUsageAndRefresh();
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(
+            success
+                ? '+3 minutes emergency screen time granted!'
+                : 'Could not activate pass. Daily limit reached.',
+          ),
+          backgroundColor: success ? const Color(0xFF10B981) : const Color(0xFFEF4444),
+          behavior: SnackBarBehavior.floating,
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+        ),
+      );
+    }
+  }
+
+  void _showRewardedAdDialog() {
+    if (AdMobService.instance.isAdLoaded) {
+      AdMobService.instance.showRewardedAd(
+        onRewardEarned: () async {
+          await _grantEmergencyPass();
+        },
+        onAdFailed: () {
+          _showFallbackAdDialog();
+        },
+      );
+    } else {
+      _showFallbackAdDialog();
+    }
+  }
+
+  void _showFallbackAdDialog() {
+    showDialog(
+      context: context,
+      barrierDismissible: false,
+      builder: (ctx) => _RewardedAdPlayerDialog(
+        onAdComplete: () async {
+          Navigator.pop(ctx);
+          await _grantEmergencyPass();
+        },
+      ),
+    );
+  }
+
 
   @override
   Widget build(BuildContext context) {
@@ -593,6 +677,31 @@ class _FravoDashboardState extends State<FravoDashboard>
         centerTitle: true,
         actions: [
           // Stats button - glass icon
+          ValueListenableBuilder<bool>(
+            valueListenable: RevenueCatService.instance.isPremiumNotifier,
+            builder: (context, isPremium, _) {
+              return GlassIconButton(
+                icon: isPremium ? Icons.star_rounded : Icons.workspace_premium_rounded,
+                iconColor: isPremium ? const Color(0xFF10B981) : const Color(0xFFF59E0B),
+                onPressed: () {
+                  Navigator.push(
+                    context,
+                    MaterialPageRoute(
+                      builder: (context) => const PaywallScreen(source: 'appbar'),
+                    ),
+                  );
+                },
+              );
+            },
+          ),
+          // Invite Friends & Earn button
+          GlassIconButton(
+            icon: Icons.card_giftcard_rounded,
+            iconColor: const Color(0xFF10B981),
+            onPressed: () => GrowthService.instance.showReferralSheet(context),
+          ),
+          const SizedBox(width: 8),
+          // Stats button - glass icon
           GlassIconButton(
             icon: Icons.analytics_rounded,
             iconColor: const Color(0xFF4A90E2),
@@ -612,6 +721,7 @@ class _FravoDashboardState extends State<FravoDashboard>
           const SizedBox(width: 12),
         ],
       ),
+
       body: SafeArea(
         child: SingleChildScrollView(
           padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 16),
@@ -795,6 +905,162 @@ class _FravoDashboardState extends State<FravoDashboard>
               ),
             ],
           ),
+        ),
+      ),
+    );
+  }
+}
+
+/// Simulated Rewarded Video Ad player dialog for Free tier Emergency Pass.
+class _RewardedAdPlayerDialog extends StatefulWidget {
+  final VoidCallback onAdComplete;
+  const _RewardedAdPlayerDialog({required this.onAdComplete});
+
+  @override
+  State<_RewardedAdPlayerDialog> createState() => _RewardedAdPlayerDialogState();
+}
+
+class _RewardedAdPlayerDialogState extends State<_RewardedAdPlayerDialog> {
+  int _secondsRemaining = 5;
+  Timer? _timer;
+  bool _adFinished = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _startTimer();
+  }
+
+  void _startTimer() {
+    _timer = Timer.periodic(const Duration(seconds: 1), (t) {
+      if (!mounted) return;
+      setState(() {
+        if (_secondsRemaining > 1) {
+          _secondsRemaining--;
+        } else {
+          _secondsRemaining = 0;
+          _adFinished = true;
+          _timer?.cancel();
+        }
+      });
+    });
+  }
+
+  @override
+  void dispose() {
+    _timer?.cancel();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final progress = (5 - _secondsRemaining) / 5.0;
+
+    return Dialog(
+      backgroundColor: Colors.transparent,
+      child: PuffyGlassContainer(
+        borderRadius: 28,
+        padding: const EdgeInsets.all(24),
+        tintColor: const Color(0xFF1E293B),
+        tintAlpha: 0.95,
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Row(
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              children: [
+                Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                  decoration: BoxDecoration(
+                    color: const Color(0xFFF59E0B),
+                    borderRadius: BorderRadius.circular(8),
+                  ),
+                  child: const Text(
+                    'REWARDED AD',
+                    style: TextStyle(
+                      fontSize: 10,
+                      fontWeight: FontWeight.bold,
+                      color: Colors.white,
+                      letterSpacing: 0.5,
+                    ),
+                  ),
+                ),
+                Text(
+                  _adFinished ? 'Ad Finished' : 'Reward in ${_secondsRemaining}s',
+                  style: TextStyle(
+                    fontSize: 12,
+                    fontWeight: FontWeight.w600,
+                    color: _adFinished ? const Color(0xFF10B981) : Colors.white70,
+                  ),
+                ),
+              ],
+            ),
+
+            const SizedBox(height: 20),
+
+            // Video Player Mock Canvas
+            Container(
+              height: 160,
+              width: double.infinity,
+              decoration: BoxDecoration(
+                color: Colors.black,
+                borderRadius: BorderRadius.circular(16),
+                border: Border.all(color: Colors.white24),
+              ),
+              child: Stack(
+                alignment: Alignment.center,
+                children: [
+                  const Icon(
+                    Icons.play_circle_fill_rounded,
+                    size: 56,
+                    color: Color(0xFF3B82F6),
+                  ),
+                  Positioned(
+                    bottom: 12,
+                    left: 16,
+                    right: 16,
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        const Text(
+                          'Fravo Partner Sponsor',
+                          style: TextStyle(color: Colors.white, fontSize: 12, fontWeight: FontWeight.bold),
+                        ),
+                        const SizedBox(height: 6),
+                        ClipRRect(
+                          borderRadius: BorderRadius.circular(4),
+                          child: LinearProgressIndicator(
+                            value: progress,
+                            backgroundColor: Colors.white24,
+                            valueColor: const AlwaysStoppedAnimation<Color>(Color(0xFF10B981)),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ],
+              ),
+            ),
+
+            const SizedBox(height: 20),
+
+            SizedBox(
+              width: double.infinity,
+              height: 48,
+              child: ElevatedButton(
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: _adFinished ? const Color(0xFF10B981) : Colors.grey.shade700,
+                  foregroundColor: Colors.white,
+                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+                ),
+                onPressed: _adFinished ? widget.onAdComplete : null,
+                child: Text(
+                  _adFinished ? 'Claim +3 Mins Emergency Pass 🎉' : 'Watch Full Ad (${_secondsRemaining}s)',
+                  style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 14),
+                ),
+              ),
+            ),
+          ],
         ),
       ),
     );

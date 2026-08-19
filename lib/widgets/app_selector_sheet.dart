@@ -3,7 +3,9 @@ import 'dart:typed_data';
 import 'package:flutter/material.dart';
 import 'package:zo_app_blocker/zo_app_blocker.dart';
 
+import '../screens/paywall_screen.dart';
 import '../services/blocker_service.dart';
+import '../services/revenuecat_service.dart';
 import '../services/time_bank.dart';
 
 // ── App Icon Widget ──────────────────────────────────────────────────────────
@@ -276,6 +278,14 @@ class _AppSelectorSheetState extends State<AppSelectorSheet> {
   }
 
   void _toggleApp(String packageName, String appName) {
+    final isPremium = RevenueCatService.instance.isPremium;
+    final isSelectingNew = !_selectedApps.containsKey(packageName);
+
+    if (!isPremium && isSelectingNew && _selectedApps.isNotEmpty) {
+      _showUpgradePaywallDialog();
+      return;
+    }
+
     setState(() {
       if (_selectedApps.containsKey(packageName)) {
         _selectedApps.remove(packageName);
@@ -283,6 +293,51 @@ class _AppSelectorSheetState extends State<AppSelectorSheet> {
         _selectedApps[packageName] = appName;
       }
     });
+  }
+
+  void _showUpgradePaywallDialog() {
+    showDialog(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(24)),
+        title: const Row(
+          children: [
+            Icon(Icons.workspace_premium_rounded, color: Color(0xFFF59E0B), size: 24),
+            SizedBox(width: 8),
+            Text(
+              '1 App Blocking Limit',
+              style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16),
+            ),
+          ],
+        ),
+        content: const Text(
+          'Free users can block 1 app at a time.\n\nUpgrade to Fravo Premium for unlimited app blocking, custom step rates, and priority notifications!',
+          style: TextStyle(fontSize: 13, color: Color(0xFF4B5563), height: 1.4),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx),
+            child: const Text('Got it'),
+          ),
+          FilledButton(
+            style: FilledButton.styleFrom(
+              backgroundColor: const Color(0xFF3B82F6),
+              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
+            ),
+            onPressed: () {
+              Navigator.pop(ctx);
+              Navigator.push(
+                context,
+                MaterialPageRoute(
+                  builder: (_) => const PaywallScreen(source: 'app_limit_dialog'),
+                ),
+              );
+            },
+            child: const Text('Upgrade to Pro'),
+          ),
+        ],
+      ),
+    );
   }
 
   void _applySelection() {
@@ -697,17 +752,51 @@ class _AppSelectorSheetState extends State<AppSelectorSheet> {
           );
         }
 
+        final isPremium = RevenueCatService.instance.isPremium;
+        final isLockedForFree = !isPremium && !isSelected && _selectedApps.isNotEmpty;
+
         return ListTile(
           contentPadding: const EdgeInsets.symmetric(
             horizontal: 8,
             vertical: 4,
           ),
           leading: SizedBox(width: 52, height: 52, child: iconWidget),
-          title: Text(
-            app.appName,
-            style: TextStyle(
-              fontWeight: isSelected ? FontWeight.bold : FontWeight.w600,
-            ),
+          title: Row(
+            children: [
+              Expanded(
+                child: Text(
+                  app.appName,
+                  style: TextStyle(
+                    fontWeight: isSelected ? FontWeight.bold : FontWeight.w600,
+                  ),
+                ),
+              ),
+              if (isLockedForFree)
+                Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                  decoration: BoxDecoration(
+                    color: const Color(0xFFFEF3C7),
+                    borderRadius: BorderRadius.circular(6),
+                    border: Border.all(color: const Color(0xFFFDE68A)),
+                  ),
+                  child: const Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Icon(Icons.lock_rounded, size: 10, color: Color(0xFFD97706)),
+                      SizedBox(width: 3),
+                      Text(
+                        'PREMIUM',
+                        style: TextStyle(
+                          fontSize: 9,
+                          fontWeight: FontWeight.w800,
+                          color: Color(0xFFB45309),
+                          letterSpacing: 0.3,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+            ],
           ),
           subtitle: Text(
             app.packageName,
@@ -718,18 +807,20 @@ class _AppSelectorSheetState extends State<AppSelectorSheet> {
             width: 28,
             height: 28,
             decoration: BoxDecoration(
-              color: isSelected ? const Color(0xFF2D3748) : Colors.transparent,
+              color: isSelected
+                  ? const Color(0xFF2D3748)
+                  : (isLockedForFree ? const Color(0xFFFEF3C7) : Colors.transparent),
               shape: BoxShape.circle,
               border: Border.all(
                 color: isSelected
                     ? const Color(0xFF2D3748)
-                    : const Color(0xFFCBD5E0),
+                    : (isLockedForFree ? const Color(0xFFF59E0B) : const Color(0xFFCBD5E0)),
                 width: 2,
               ),
             ),
             child: isSelected
                 ? const Icon(Icons.check, color: Colors.white, size: 16)
-                : null,
+                : (isLockedForFree ? const Icon(Icons.lock_rounded, color: Color(0xFFD97706), size: 14) : null),
           ),
           onTap: () => _toggleApp(app.packageName, app.appName),
         );

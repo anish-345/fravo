@@ -3,6 +3,8 @@ import 'dart:convert';
 import 'package:flutter/foundation.dart';
 import 'package:hive_flutter/hive_flutter.dart';
 import 'package:zo_app_blocker/zo_app_blocker.dart';
+import 'revenuecat_service.dart';
+import 'widget_service.dart';
 
 /// App preset definition for popular applications
 class PresetApp {
@@ -112,6 +114,25 @@ class TimeBankService {
     _box = await Hive.openBox(_boxName);
     _migrateLegacySingleApp();
     validateDeviceClock();
+    syncHomeWidget();
+  }
+
+  /// Synchronize current step count and time bank balance to Android/iOS home screen widget.
+  void syncHomeWidget() {
+    final pkgs = blockedPackageNames;
+    final selectedPkg = pkgs.isNotEmpty ? pkgs.first : 'com.instagram.android';
+    final selectedName = displayNameFor(selectedPkg);
+
+    WidgetService.instance.updateWidgetData(
+      steps: totalStepsWalked,
+      stepGoal: customStepGoal,
+      earnedMinutes: earnedMinutes,
+      usedMinutes: usedMinutes,
+      remainingMinutes: remainingScreenTime,
+      isPremium: RevenueCatService.instance.isPremium,
+      selectedAppPackage: selectedPkg,
+      selectedAppName: selectedName,
+    );
   }
 
   /// Detects if system clock was rewound or manually manipulated.
@@ -172,6 +193,7 @@ class TimeBankService {
     if (lastStepsDay != today || newTotalSteps > totalStepsWalked) {
       await _box?.put(_totalStepsKey, newTotalSteps);
       await _box?.put(_lastStepsDayKey, today);
+      syncHomeWidget();
     }
   }
 
@@ -182,15 +204,26 @@ class TimeBankService {
 
   Future<void> setCustomStepGoal(int goal) async {
     await _box?.put(_customStepGoalKey, goal.clamp(1000, 50000));
+    syncHomeWidget();
   }
 
   // ── Reward formula ────────────────────────────────────────────────────────
 
-  /// Minutes rewarded per 1,000 steps. Default 30, range 5–60.
-  int get minutesPer1kSteps => (_box?.get(_minutesPer1kStepsKey) as int?) ?? 30;
+  /// Minutes rewarded per 1,000 steps.
+  /// Free tier can access rates from 25 to 60 mins (rates below 25 min are locked for Pro strict mode).
+  /// Fravo Pro users can unlock all custom rates from 5 to 60 mins.
+  int get minutesPer1kSteps {
+    final raw = (_box?.get(_minutesPer1kStepsKey) as int?) ?? 30;
+    if (!RevenueCatService.instance.isPremium) {
+      return raw.clamp(25, 60);
+    }
+    return raw.clamp(5, 60);
+  }
 
   Future<void> setMinutesPer1kSteps(int value) async {
-    await _box?.put(_minutesPer1kStepsKey, value.clamp(5, 60));
+    final isPremium = RevenueCatService.instance.isPremium;
+    final minAllowed = isPremium ? 5 : 25;
+    await _box?.put(_minutesPer1kStepsKey, value.clamp(minAllowed, 60));
   }
 
   /// Emergency pass bonus minutes added to earned time today.
@@ -449,10 +482,21 @@ class TimeBankService {
 
   String get currentAppBlockingName => displayNameFor(currentAppBlockingTarget);
 
+  // ── Tier Limits (Free vs Premium) ──────────────────────────────────────────
+
+  /// Maximum allowed apps for blocking (1 for Free, Unlimited for Premium).
+  int get maxAllowedBlockedApps =>
+      RevenueCatService.instance.isPremium ? 999 : 1;
+
+  /// Maximum emergency passes allowed per day (1 for Free, 3 for Premium).
+  int get maxAllowedEmergencyPasses =>
+      RevenueCatService.instance.isPremium ? 3 : 1;
+
   // ── Emergency Snooze (3-minute pass) ──────────────────────────────────────
 
   static const String _emergencyPassBonusMinutesKey = 'emergencyPassBonusMinutes';
   static const String _hasUsedEmergencyPassTodayKey = 'hasUsedEmergencyPassToday';
+  static const String _emergencyPassCountTodayKey = 'emergencyPassCountToday';
 
   /// Duration of one emergency pass in minutes.
   static const int emergencyPassDurationMinutes = 3;
@@ -460,24 +504,43 @@ class TimeBankService {
   /// Legacy shim maintained for compatibility.
   static const int emergencyPassCostSteps = 0;
 
-  /// Whether the user has already used their 1 emergency pass today.
-  bool get hasUsedEmergencyPassToday =>
-      (_box?.get(_hasUsedEmergencyPassTodayKey) as bool?) ?? false;
+  /// Total emergency passes used today.
+  int get emergencyPassCountToday {
+    final count = _box?.get(_emergencyPassCountTodayKey) as int?;
+    if (count != null) return count;
+    final legacyUsed = (_box?.get(_hasUsedEmergencyPassTodayKey) as bool?) ?? false;
+    return legacyUsed ? 1 : 0;
+  }
 
-  /// Whether an emergency pass is available today (no walking required, max 1/day).
-  bool get canUseEmergencyPass => !hasUsedEmergencyPassToday;
+  /// Whether the user has used all emergency passes allowed today.
+  bool get hasUsedEmergencyPassToday =>
+      emergencyPassCountToday >= maxAllowedEmergencyPasses;
+
+  /// Remaining emergency passes available today.
+  int get remainingEmergencyPassesToday =>
+      (maxAllowedEmergencyPasses - emergencyPassCountToday).clamp(0, 3);
+
+  /// Whether an emergency pass is available today.
+  bool get canUseEmergencyPass =>
+      emergencyPassCountToday < maxAllowedEmergencyPasses;
 
   /// Legacy shims maintained for UI compatibility.
   bool get hasActiveEmergencyPass => false;
   DateTime? get emergencyPassExpiry => null;
 
-  /// Activates a 3-minute emergency pass (1 use per day, available without walking).
+  /// Activates a 3-minute emergency pass.
   /// Adds +3 minutes directly to earnedMinutes balance.
   /// Returns true if successfully activated.
   Future<bool> activateEmergencyPass() async {
-    if (hasUsedEmergencyPassToday) return false;
+    if (!canUseEmergencyPass) return false;
 
-    await _box?.put(_hasUsedEmergencyPassTodayKey, true);
+    final newCount = emergencyPassCountToday + 1;
+    await _box?.put(_emergencyPassCountTodayKey, newCount);
+    await _box?.put(
+      _hasUsedEmergencyPassTodayKey,
+      newCount >= maxAllowedEmergencyPasses,
+    );
+
     final currentBonus = emergencyPassBonusMinutes;
     await _box?.put(
       _emergencyPassBonusMinutesKey,
@@ -486,7 +549,7 @@ class TimeBankService {
 
     debugPrint(
       'TimeBankService: Emergency pass activated! '
-      '+${emergencyPassDurationMinutes}min added to earned time (1/day limit).',
+      '+${emergencyPassDurationMinutes}min added. Pass $newCount of $maxAllowedEmergencyPasses used today.',
     );
     return true;
   }
@@ -567,6 +630,7 @@ class TimeBankService {
       await _box?.put(_usedSecondsKey, 0);
       await _box?.put(_emergencyPassBonusMinutesKey, 0);
       await _box?.put(_hasUsedEmergencyPassTodayKey, false);
+      await _box?.put(_emergencyPassCountTodayKey, 0);
       await _box?.put(_perAppUsedMinutesKey, jsonEncode({}));
       await _box?.put(_perAppUsedSecondsKey, jsonEncode({}));
       await _saveNativeBaseline({});
@@ -640,7 +704,6 @@ class TimeBankService {
 class CommonApps {
   static const List<PresetApp> presets = [
     PresetApp(name: 'Instagram', packageName: 'com.instagram.android', category: 'Social'),
-    PresetApp(name: 'TikTok', packageName: 'com.zhiliaoapp.musically', category: 'Social'),
     PresetApp(name: 'YouTube', packageName: 'com.google.android.youtube', category: 'Video'),
     PresetApp(name: 'X (Twitter)', packageName: 'com.twitter.android', category: 'Social'),
     PresetApp(name: 'Facebook', packageName: 'com.facebook.katana', category: 'Social'),

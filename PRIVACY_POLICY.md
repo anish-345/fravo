@@ -24,7 +24,7 @@ Fravo is designed to work entirely **on your device**. We do not operate servers
 
 ### 2.2 App Usage Statistics
 
-- **What we access:** Screen-time usage data for the apps you choose to block (e.g., Instagram, TikTok, YouTube). This requires the "Usage Access" (PACKAGE_USAGE_STATS) permission.
+- **What we access:** Screen-time usage data for the apps you choose to block (e.g., Instagram, YouTube, Social Media). This requires the "Usage Access" (PACKAGE_USAGE_STATS) permission.
 - **Why:** To measure how much of your earned screen time you have consumed and enforce the time limit when it runs out.
 - **How it is stored:** Usage data is processed in memory and stored locally on your device. It is never uploaded or shared.
 

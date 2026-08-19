@@ -2,11 +2,15 @@ import 'package:flutter/material.dart';
 import 'package:hive_flutter/hive_flutter.dart';
 import 'package:zo_app_blocker/zo_app_blocker.dart';
 
+import '../services/analytics_service.dart';
 import '../services/blocker_service.dart';
 import '../services/health_service.dart';
+import '../services/onesignal_service.dart';
+import '../services/revenuecat_service.dart';
 import '../services/time_bank.dart';
 import '../widgets/app_selector_sheet.dart';
 import '../widgets/premium_glass_system.dart';
+import 'paywall_screen.dart';
 
 /// Fravo's enhanced first-run experience — a 4-step animated walkthrough.
 ///
@@ -27,8 +31,8 @@ class OnboardingScreen extends StatefulWidget {
 class _OnboardingScreenState extends State<OnboardingScreen> {
   static const _kTopCulprits = [
     'com.instagram.android',
-    'com.zhiliaoapp.musically',
     'com.google.android.youtube',
+    'com.facebook.katana',
   ];
 
   final PageController _pageController = PageController();
@@ -49,7 +53,33 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
   @override
   void initState() {
     super.initState();
+    AnalyticsService.instance.logEvent('onboarding_started');
+    AnalyticsService.instance.logOnboardingStepViewed(0, 'goal_selection');
+    OneSignalService.instance.setJourneyStage('onboarding_step_0');
     _loadPopularApps();
+  }
+
+  static const List<String> _stepNames = [
+    'goal_selection',
+    'pick_apps',
+    'walk_to_earn',
+    'pause_preview',
+  ];
+
+  void _onStepChanged(int index) {
+    setState(() => _currentPage = index);
+    final name = index < _stepNames.length ? _stepNames[index] : 'step_$index';
+    AnalyticsService.instance.logOnboardingStepViewed(index, name);
+    OneSignalService.instance.setJourneyStage('onboarding_step_$index');
+  }
+
+  void _skipOnboarding() {
+    final name = _currentPage < _stepNames.length ? _stepNames[_currentPage] : 'step_$_currentPage';
+    AnalyticsService.instance.logOnboardingAbandoned(
+      lastStepIndex: _currentPage,
+      reason: 'skipped_at_$name',
+    );
+    _completeOnboarding();
   }
 
   @override
@@ -101,6 +131,15 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
       setState(() {
         _popularApps = apps;
         _loadingApps = false;
+
+        // Pre-select initial top culprit app so user has active selection preset
+        if (_selected.isEmpty) {
+          final top = _topCulpritList.isNotEmpty ? _topCulpritList.first : apps.firstOrNull;
+          if (top != null) {
+            _selected.add(top.packageName);
+            _selectedNames[top.packageName] = top.appName;
+          }
+        }
       });
     } catch (e) {
       debugPrint('Onboarding _loadPopularApps error: $e');
@@ -128,6 +167,14 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
       .toList();
 
   void _toggleApp(AppInfo app) {
+    final isPremium = RevenueCatService.instance.isPremium;
+    final isSelectingNew = !_selected.contains(app.packageName);
+
+    if (!isPremium && isSelectingNew && _selected.isNotEmpty) {
+      _showOnboardingUpgradeDialog();
+      return;
+    }
+
     setState(() {
       if (_selected.contains(app.packageName)) {
         _selected.remove(app.packageName);
@@ -139,13 +186,59 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
     });
   }
 
+  void _showOnboardingUpgradeDialog() {
+    showDialog(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(24)),
+        title: const Row(
+          children: [
+            Icon(Icons.workspace_premium_rounded, color: Color(0xFFF59E0B), size: 24),
+            SizedBox(width: 8),
+            Text(
+              '1 App Limit for Free Tier',
+              style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16),
+            ),
+          ],
+        ),
+        content: const Text(
+          'Free users can select 1 app at a time.\n\nUpgrade to Fravo Premium for unlimited app blocking, custom step rates, and priority notifications!',
+          style: TextStyle(fontSize: 13, color: Color(0xFF4B5563), height: 1.4),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx),
+            child: const Text('Got it'),
+          ),
+          ElevatedButton(
+            style: ElevatedButton.styleFrom(
+              backgroundColor: const Color(0xFF4A90E2),
+              foregroundColor: Colors.white,
+              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+            ),
+            onPressed: () {
+              Navigator.pop(ctx);
+              Navigator.push(
+                context,
+                MaterialPageRoute(builder: (_) => const PaywallScreen(source: 'onboarding_limit')),
+              );
+            },
+            child: const Text('Upgrade'),
+          ),
+        ],
+      ),
+    );
+  }
+
   /// Quick Start: one tap = block top culprits and jump straight to Step 2.
   Future<void> _quickStart() async {
-    final top3 = _topCulpritList;
+    final isPremium = RevenueCatService.instance.isPremium;
+    final topList = isPremium ? _topCulpritList : _topCulpritList.take(1).toList();
+
     setState(() {
       _selected.clear();
       _selectedNames.clear();
-      for (final app in top3) {
+      for (final app in topList) {
         _selected.add(app.packageName);
         _selectedNames[app.packageName] = app.appName;
       }
@@ -155,18 +248,7 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
   }
 
   Future<void> _saveSelectedApps() async {
-    // Smart Fallback: If user skipped app selection, default to top culprits
-    if (_selected.isEmpty) {
-      final topList = _topCulpritList.isNotEmpty
-          ? _topCulpritList
-          : CommonApps.presets.take(3).map(
-                (p) => AppInfo(appName: p.name, packageName: p.packageName),
-              );
-      for (final app in topList) {
-        _selected.add(app.packageName);
-        _selectedNames[app.packageName] = app.appName;
-      }
-    }
+    // Save ONLY the exact apps selected by the user on the onboarding screen as the blocked app preset
     await TimeBankService.instance.setBlockedApps(
       _selected.toList(),
       Map<String, String>.from(_selectedNames),
@@ -186,6 +268,26 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
     await _saveSelectedApps();
     final box = Hive.box('time_bank');
     await box.put('completedOnboarding', true);
+
+    final blockedAppsList = _selected.toList();
+    final primaryAppName = _selectedNames.values.firstOrNull ?? 'General';
+    final rewardRate = TimeBankService.instance.minutesPer1kSteps;
+
+    // 1. Log event & user profile properties to Firebase Analytics
+    await AnalyticsService.instance.logOnboardingCompleted(
+      goal: _selectedGoal,
+      blockedApps: blockedAppsList,
+      rewardRate: rewardRate,
+    );
+
+    // 2. Sync user profile tags to OneSignal for segmented notifications
+    await OneSignalService.instance.syncOnboardingUserProfile(
+      goal: _selectedGoal,
+      blockedApps: blockedAppsList,
+      primaryAppName: primaryAppName,
+      rewardRate: rewardRate,
+    );
+
     widget.onOnboardingComplete();
   }
 
@@ -220,7 +322,7 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
                     ),
                   ),
                   TextButton(
-                    onPressed: _completeOnboarding,
+                    onPressed: _skipOnboarding,
                     child: const Text(
                       'Skip',
                       style: TextStyle(
@@ -238,14 +340,13 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
               child: PageView(
                 controller: _pageController,
                 physics: const NeverScrollableScrollPhysics(),
-                onPageChanged: (index) =>
-                    setState(() => _currentPage = index),
+                onPageChanged: _onStepChanged,
                 children: [
                   _buildGoalStep(),
                   _buildPickAppsStep(),
                   _WalkToEarnStep(
                     onNext: () => _animateToPage(3),
-                    onSkip: _completeOnboarding,
+                    onSkip: _skipOnboarding,
                   ),
                   _buildPausePreviewStep(),
                 ],

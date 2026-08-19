@@ -7,7 +7,9 @@ import 'package:intl/intl.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:share_plus/share_plus.dart';
 
+import '../services/growth_service.dart';
 import '../services/health_service.dart';
+import '../services/onesignal_service.dart';
 import '../services/time_bank.dart';
 import '../widgets/app_selector_sheet.dart';
 import '../widgets/premium_glass_system.dart';
@@ -38,6 +40,7 @@ class _StatsScreenState extends State<StatsScreen>
   @override
   void initState() {
     super.initState();
+    OneSignalService.instance.setScreenTrigger('stats');
     _fadeController = AnimationController(
       vsync: this,
       duration: const Duration(milliseconds: 600),
@@ -254,11 +257,10 @@ class _StatsScreenState extends State<StatsScreen>
       );
       await file.writeAsBytes(byteData.buffer.asUint8List());
 
-      await SharePlus.instance.share(
-        ShareParams(
-          files: [XFile(file.path, mimeType: 'image/png')],
-          text: 'I traded my steps for screen time today! 🏃📵',
-        ),
+      await GrowthService.instance.shareMilestoneProgress(
+        stepsWalked: _timeBank.totalStepsWalked,
+        earnedMinutes: _timeBank.earnedMinutes,
+        imageFile: XFile(file.path, mimeType: 'image/png'),
       );
     } catch (e) {
       debugPrint('Share failed: $e');

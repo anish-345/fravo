@@ -4,7 +4,7 @@ Walk to earn screen time. Fravo converts your daily steps into allowed app usage
 
 ## How It Works
 
-1. Select apps you want to limit (Instagram, TikTok, YouTube, etc.)
+1. Select apps you want to limit (Instagram, YouTube, Social Media, etc.)
 2. Walk to earn screen time — 1,000 steps = configurable minutes (default 30 min)
 3. When your time runs out, the selected apps are blocked until you walk more
 
