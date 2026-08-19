@@ -7,6 +7,7 @@ import 'package:intl/intl.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:share_plus/share_plus.dart';
 
+import '../services/activity_classifier.dart';
 import '../services/growth_service.dart';
 import '../services/health_service.dart';
 import '../services/onesignal_service.dart';
@@ -105,14 +106,9 @@ class _StatsScreenState extends State<StatsScreen>
     return steps.toString();
   }
 
-  /// Average stride length ~0.762 m (adult average).
-  double _stepsToKm(int steps) => (steps * 0.762) / 1000;
-
-  /// Approx calories: steps × 0.04 kcal (walking estimate).
-  int _stepsToCalories(int steps) => (steps * 0.04).round();
-
-  /// Approx active minutes: steps / 100 (100 steps/min brisk walk).
-  int _stepsToActiveMinutes(int steps) => (steps / 100).round();
+  /// Combined calories: walking ~0.04 kcal/step, running ~0.072 kcal/step.
+  int _calculateCalories(int walkingSteps, int runningSteps) =>
+      ((walkingSteps * 0.04) + (runningSteps * 0.072)).round();
 
   double get _progressRatio {
     final earned = _timeBank.earnedMinutes;
@@ -277,6 +273,16 @@ class _StatsScreenState extends State<StatsScreen>
   @override
   Widget build(BuildContext context) {
     final steps = _timeBank.totalStepsWalked;
+    final walkingSteps = _timeBank.walkingSteps;
+    final runningSteps = _timeBank.runningSteps;
+    final walkingRatio = _timeBank.walkingRatio;
+    final runningRatio = _timeBank.runningRatio;
+    final walkingKm = _timeBank.walkingDistanceKm;
+    final runningKm = _timeBank.runningDistanceKm;
+    final totalKm = _timeBank.totalDistanceKm;
+    final walkingMin = _timeBank.walkingDurationMinutes;
+    final runningMin = _timeBank.runningDurationMinutes;
+    final totalActiveMin = _timeBank.totalActiveDurationMinutes;
     final earned = _timeBank.earnedMinutes;
     final used = _timeBank.usedMinutes;
     final remaining = _timeBank.remainingScreenTime;
@@ -285,9 +291,7 @@ class _StatsScreenState extends State<StatsScreen>
     final goal = _timeBank.customStepGoal;
     final streak = _timeBank.currentStreakDays;
 
-    final distanceKm = _stepsToKm(steps);
-    final calories = _stepsToCalories(steps);
-    final activeMin = _stepsToActiveMinutes(steps);
+    final calories = _calculateCalories(walkingSteps, runningSteps);
 
     final today = DateFormat('EEEE, MMM d').format(DateTime.now());
 
@@ -398,6 +402,20 @@ class _StatsScreenState extends State<StatsScreen>
                       _buildWeeklyChart(),
                       const SizedBox(height: 14),
 
+                      // ── Walk vs Run Breakdown Card ────────────────────────
+                      _buildWalkRunBreakdownCard(
+                        walkingSteps: walkingSteps,
+                        runningSteps: runningSteps,
+                        totalSteps: steps,
+                        walkingRatio: walkingRatio,
+                        runningRatio: runningRatio,
+                        walkingKm: walkingKm,
+                        runningKm: runningKm,
+                        walkingMin: walkingMin,
+                        runningMin: runningMin,
+                      ),
+                      const SizedBox(height: 14),
+
                       // ── Steps & Distance Row ─────────────────────────────
                       Row(
                         children: [
@@ -406,7 +424,12 @@ class _StatsScreenState extends State<StatsScreen>
                           ),
                           const SizedBox(width: 12),
                           Expanded(
-                            child: _buildDistanceCard(distanceKm, steps),
+                            child: _buildDistanceCard(
+                              totalKm,
+                              steps,
+                              walkingKm,
+                              runningKm,
+                            ),
                           ),
                         ],
                       ),
@@ -430,7 +453,7 @@ class _StatsScreenState extends State<StatsScreen>
                               icon: Icons.timer_outlined,
                               gradient: GlassPalette.mint,
                               label: 'Active',
-                              value: '$activeMin',
+                              value: '$totalActiveMin',
                               unit: 'min',
                             ),
                           ),
@@ -488,6 +511,12 @@ class _StatsScreenState extends State<StatsScreen>
                   key: _shareCardKey,
                   child: _ShareStatCard(
                     steps: steps,
+                    walkingSteps: walkingSteps,
+                    runningSteps: runningSteps,
+                    walkingDistanceKm: walkingKm,
+                    runningDistanceKm: runningKm,
+                    walkingDurationMinutes: walkingMin,
+                    runningDurationMinutes: runningMin,
                     earnedMinutes: earned,
                     usedMinutes: used,
                     streak: streak,
@@ -660,7 +689,12 @@ class _StatsScreenState extends State<StatsScreen>
 
   // ── Distance Card ────────────────────────────────────────────────────────
 
-  Widget _buildDistanceCard(double km, int steps) {
+  Widget _buildDistanceCard(
+    double km,
+    int steps,
+    double walkKm,
+    double runKm,
+  ) {
     final metres = (km * 1000).round();
     final displayKm = km >= 1.0;
 
@@ -715,12 +749,14 @@ class _StatsScreenState extends State<StatsScreen>
               ),
             ],
           ),
-          const Text(
-            'distance walked',
+          Text(
+            runKm > 0
+                ? '🚶 ${walkKm.toStringAsFixed(1)}k • 🏃 ${runKm.toStringAsFixed(1)}k'
+                : 'total distance',
             style: TextStyle(
-              color: Color(0xFF1A1A2E),
-              fontSize: 12,
-              fontWeight: FontWeight.w500,
+              color: const Color(0xFF1A1A2E).withValues(alpha: 0.75),
+              fontSize: 11.5,
+              fontWeight: FontWeight.w600,
             ),
           ),
           const SizedBox(height: 12),
@@ -855,11 +891,13 @@ class _StatsScreenState extends State<StatsScreen>
           '${date.year}-${date.month.toString().padLeft(2, '0')}-${date.day.toString().padLeft(2, '0')}';
       final isToday = i == 0;
 
-      if (isToday) {
+    if (isToday) {
         days.add(
           _DayData(
             label: 'Today',
             steps: _timeBank.totalStepsWalked,
+            walkingSteps: _timeBank.walkingSteps,
+            runningSteps: _timeBank.runningSteps,
             earned: _timeBank.earnedMinutes,
           ),
         );
@@ -869,6 +907,8 @@ class _StatsScreenState extends State<StatsScreen>
           _DayData(
             label: DateFormat('EEE').format(date),
             steps: record?.steps ?? 0,
+            walkingSteps: record?.walkingSteps ?? record?.steps ?? 0,
+            runningSteps: record?.runningSteps ?? 0,
             earned: record?.earnedMinutes ?? 0,
           ),
         );
@@ -966,8 +1006,11 @@ class _StatsScreenState extends State<StatsScreen>
                         touchTooltipData: BarTouchTooltipData(
                           getTooltipItem: (group, gi, rod, ri) {
                             final d = days[group.x.toInt()];
+                            final runText = d.runningSteps > 0
+                                ? '\n🚶 ${_formatSteps(d.walkingSteps)}  •  🏃 ${_formatSteps(d.runningSteps)}'
+                                : '';
                             return BarTooltipItem(
-                              '${d.label}\n${_formatSteps(d.steps)} steps',
+                              '${d.label}\n${_formatSteps(d.steps)} steps$runText',
                               const TextStyle(
                                 color: Color(0xFF1A1A2E),
                                 fontSize: 11,
@@ -1032,6 +1075,8 @@ class _StatsScreenState extends State<StatsScreen>
                         final d = entry.value;
                         final metGoal = d.steps >= goal;
                         final isToday = idx == 6;
+                        final hasRunning = d.runningSteps > 0;
+
                         return BarChartGroupData(
                           x: idx,
                           barRods: [
@@ -1045,6 +1090,24 @@ class _StatsScreenState extends State<StatsScreen>
                                       ? GlassPalette.mint.last
                                       : const Color(0xFF1A1A2E)
                                           .withValues(alpha: 0.25),
+                              rodStackItems: hasRunning
+                                  ? [
+                                      BarChartRodStackItem(
+                                        0,
+                                        d.walkingSteps.toDouble(),
+                                        isToday
+                                            ? const Color(0xFF10B981)
+                                            : (metGoal
+                                                ? const Color(0xFF10B981)
+                                                : const Color(0xFF1A1A2E).withValues(alpha: 0.3)),
+                                      ),
+                                      BarChartRodStackItem(
+                                        d.walkingSteps.toDouble(),
+                                        d.steps.toDouble(),
+                                        const Color(0xFFF97316),
+                                      ),
+                                    ]
+                                  : [],
                               backDrawRodData: BackgroundBarChartRodData(
                                 show: true,
                                 toY: maxSteps.toDouble() * 1.2,
@@ -1062,10 +1125,12 @@ class _StatsScreenState extends State<StatsScreen>
           Row(
             mainAxisAlignment: MainAxisAlignment.center,
             children: [
-              _legendDot(GlassPalette.mint.last, 'Goal met'),
-              const SizedBox(width: 16),
+              _legendDot(const Color(0xFF10B981), 'Walking'),
+              const SizedBox(width: 14),
+              _legendDot(const Color(0xFFF97316), 'Running'),
+              const SizedBox(width: 14),
               _legendDot(GlassPalette.lavender.last, 'Today'),
-              const SizedBox(width: 16),
+              const SizedBox(width: 14),
               _legendDot(
                 const Color(0xFF1A1A2E).withValues(alpha: 0.25),
                 'Below goal',
@@ -1647,6 +1712,376 @@ class _StatsScreenState extends State<StatsScreen>
       ),
     );
   }
+
+  // ── Walk vs Run Breakdown Card ──────────────────────────────────────────
+
+  Widget _buildWalkRunBreakdownCard({
+    required int walkingSteps,
+    required int runningSteps,
+    required int totalSteps,
+    required double walkingRatio,
+    required double runningRatio,
+    required double walkingKm,
+    required double runningKm,
+    required int walkingMin,
+    required int runningMin,
+  }) {
+    final walkCal = (walkingSteps * 0.04).round();
+    final runCal = (runningSteps * 0.072).round();
+
+    final walkPct = totalSteps > 0 ? (walkingRatio * 100).round() : 100;
+    final runPct = totalSteps > 0 ? (runningRatio * 100).round() : 0;
+
+    return PuffyGlassContainer(
+      borderRadius: 28,
+      padding: const EdgeInsets.all(20),
+      shadowBlur: 22,
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Container(
+                padding: const EdgeInsets.all(9),
+                decoration: BoxDecoration(
+                  gradient: const LinearGradient(colors: GlassPalette.peach),
+                  borderRadius: BorderRadius.circular(12),
+                  boxShadow: [
+                    BoxShadow(
+                      color: GlassPalette.peach.last.withValues(alpha: 0.4),
+                      blurRadius: 10,
+                      offset: const Offset(0, 4),
+                    ),
+                  ],
+                ),
+                child: const Icon(
+                  Icons.auto_graph_rounded,
+                  color: Color(0xFF1A1A2E),
+                  size: 20,
+                ),
+              ),
+              const SizedBox(width: 12),
+              const Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      'Activity Classification',
+                      style: TextStyle(
+                        color: Color(0xFF1A1A2E),
+                        fontSize: 15,
+                        fontWeight: FontWeight.w800,
+                      ),
+                    ),
+                    Text(
+                      'Real-time duration, distance & gait',
+                      style: TextStyle(
+                        color: Color(0xFF1A1A2E),
+                        fontSize: 11,
+                        fontWeight: FontWeight.w500,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              // Live Mode & Cadence Pill
+              ValueListenableBuilder<ActivityMode>(
+                valueListenable:
+                    ActivityClassifier.instance.currentModeNotifier,
+                builder: (context, mode, _) {
+                  return ValueListenableBuilder<double>(
+                    valueListenable:
+                        ActivityClassifier.instance.currentCadenceNotifier,
+                    builder: (context, cadence, _) {
+                      final isRunning = mode == ActivityMode.running;
+                      final isWalking = mode == ActivityMode.walking;
+                      final label = isRunning
+                          ? 'Running'
+                          : isWalking
+                              ? 'Walking'
+                              : 'Stationary';
+                      final color = isRunning
+                          ? const Color(0xFFF97316)
+                          : isWalking
+                              ? const Color(0xFF10B981)
+                              : const Color(0xFF6B7280);
+
+                      return Container(
+                        padding: const EdgeInsets.symmetric(
+                            horizontal: 10, vertical: 5),
+                        decoration: BoxDecoration(
+                          color: color.withValues(alpha: 0.14),
+                          borderRadius: BorderRadius.circular(12),
+                          border:
+                              Border.all(color: color.withValues(alpha: 0.35)),
+                        ),
+                        child: Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            Container(
+                              width: 7,
+                              height: 7,
+                              decoration: BoxDecoration(
+                                color: color,
+                                shape: BoxShape.circle,
+                              ),
+                            ),
+                            const SizedBox(width: 5),
+                            Text(
+                              cadence > 0
+                                  ? '$label ${cadence.toInt()} SPM'
+                                  : label,
+                              style: TextStyle(
+                                fontSize: 10.5,
+                                fontWeight: FontWeight.w800,
+                                color: color,
+                              ),
+                            ),
+                          ],
+                        ),
+                      );
+                    },
+                  );
+                },
+              ),
+            ],
+          ),
+          const SizedBox(height: 18),
+
+          // Split Progress Bar
+          ClipRRect(
+            borderRadius: BorderRadius.circular(10),
+            child: SizedBox(
+              height: 12,
+              child: Row(
+                children: [
+                  Expanded(
+                    flex: totalSteps > 0
+                        ? (walkingSteps > 0 ? walkingSteps : 1)
+                        : 1,
+                    child: Container(
+                      decoration: const BoxDecoration(
+                        gradient: LinearGradient(colors: GlassPalette.mint),
+                      ),
+                    ),
+                  ),
+                  if (runningSteps > 0)
+                    Expanded(
+                      flex: runningSteps,
+                      child: Container(
+                        decoration: const BoxDecoration(
+                          gradient: LinearGradient(colors: GlassPalette.peach),
+                        ),
+                      ),
+                    ),
+                ],
+              ),
+            ),
+          ),
+          const SizedBox(height: 16),
+
+          // 2-Column Split Details with Distance and Duration
+          Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              // Walking column
+              Expanded(
+                child: Container(
+                  padding: const EdgeInsets.all(14),
+                  decoration: BoxDecoration(
+                    color: Colors.white.withValues(alpha: 0.55),
+                    borderRadius: BorderRadius.circular(18),
+                    border: Border.all(
+                      color: GlassPalette.mint.last.withValues(alpha: 0.35),
+                    ),
+                  ),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Row(
+                        children: [
+                          Container(
+                            padding: const EdgeInsets.all(5),
+                            decoration: BoxDecoration(
+                              color: GlassPalette.mint.last
+                                  .withValues(alpha: 0.2),
+                              borderRadius: BorderRadius.circular(8),
+                            ),
+                            child: const Icon(
+                              Icons.directions_walk_rounded,
+                              size: 16,
+                              color: Color(0xFF059669),
+                            ),
+                          ),
+                          const SizedBox(width: 6),
+                          const Text(
+                            'Walking',
+                            style: TextStyle(
+                              fontSize: 13,
+                              fontWeight: FontWeight.w800,
+                              color: Color(0xFF1A1A2E),
+                            ),
+                          ),
+                          const Spacer(),
+                          Text(
+                            '$walkPct%',
+                            style: const TextStyle(
+                              fontSize: 11.5,
+                              fontWeight: FontWeight.w800,
+                              color: Color(0xFF059669),
+                            ),
+                          ),
+                        ],
+                      ),
+                      const SizedBox(height: 10),
+                      Text(
+                        _formatSteps(walkingSteps),
+                        style: const TextStyle(
+                          fontSize: 22,
+                          fontWeight: FontWeight.w900,
+                          color: Color(0xFF1A1A2E),
+                        ),
+                      ),
+                      const SizedBox(height: 8),
+                      // Distance and Duration chips
+                      _activitySubMetric(
+                        icon: Icons.route_rounded,
+                        label: 'Distance',
+                        value: '${walkingKm.toStringAsFixed(2)} km',
+                      ),
+                      const SizedBox(height: 4),
+                      _activitySubMetric(
+                        icon: Icons.timer_outlined,
+                        label: 'Duration',
+                        value: '$walkingMin min',
+                      ),
+                      const SizedBox(height: 4),
+                      _activitySubMetric(
+                        icon: Icons.local_fire_department_rounded,
+                        label: 'Burned',
+                        value: '$walkCal kcal',
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+              const SizedBox(width: 10),
+              // Running column
+              Expanded(
+                child: Container(
+                  padding: const EdgeInsets.all(14),
+                  decoration: BoxDecoration(
+                    color: Colors.white.withValues(alpha: 0.55),
+                    borderRadius: BorderRadius.circular(18),
+                    border: Border.all(
+                      color: GlassPalette.peach.last.withValues(alpha: 0.35),
+                    ),
+                  ),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Row(
+                        children: [
+                          Container(
+                            padding: const EdgeInsets.all(5),
+                            decoration: BoxDecoration(
+                              color: GlassPalette.peach.last
+                                  .withValues(alpha: 0.2),
+                              borderRadius: BorderRadius.circular(8),
+                            ),
+                            child: const Icon(
+                              Icons.directions_run_rounded,
+                              size: 16,
+                              color: Color(0xFFEA580C),
+                            ),
+                          ),
+                          const SizedBox(width: 6),
+                          const Text(
+                            'Running',
+                            style: TextStyle(
+                              fontSize: 13,
+                              fontWeight: FontWeight.w800,
+                              color: Color(0xFF1A1A2E),
+                            ),
+                          ),
+                          const Spacer(),
+                          Text(
+                            '$runPct%',
+                            style: const TextStyle(
+                              fontSize: 11.5,
+                              fontWeight: FontWeight.w800,
+                              color: Color(0xFFEA580C),
+                            ),
+                          ),
+                        ],
+                      ),
+                      const SizedBox(height: 10),
+                      Text(
+                        _formatSteps(runningSteps),
+                        style: const TextStyle(
+                          fontSize: 22,
+                          fontWeight: FontWeight.w900,
+                          color: Color(0xFF1A1A2E),
+                        ),
+                      ),
+                      const SizedBox(height: 8),
+                      // Distance and Duration chips
+                      _activitySubMetric(
+                        icon: Icons.route_rounded,
+                        label: 'Distance',
+                        value: '${runningKm.toStringAsFixed(2)} km',
+                      ),
+                      const SizedBox(height: 4),
+                      _activitySubMetric(
+                        icon: Icons.timer_outlined,
+                        label: 'Duration',
+                        value: '$runningMin min',
+                      ),
+                      const SizedBox(height: 4),
+                      _activitySubMetric(
+                        icon: Icons.local_fire_department_rounded,
+                        label: 'Burned',
+                        value: '$runCal kcal',
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+            ],
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _activitySubMetric({
+    required IconData icon,
+    required String label,
+    required String value,
+  }) {
+    return Row(
+      children: [
+        Icon(icon, size: 12.5, color: const Color(0xFF1A1A2E).withValues(alpha: 0.55)),
+        const SizedBox(width: 4),
+        Text(
+          '$label: ',
+          style: TextStyle(
+            fontSize: 10.5,
+            fontWeight: FontWeight.w600,
+            color: const Color(0xFF1A1A2E).withValues(alpha: 0.6),
+          ),
+        ),
+        Text(
+          value,
+          style: const TextStyle(
+            fontSize: 11,
+            fontWeight: FontWeight.w800,
+            color: Color(0xFF1A1A2E),
+          ),
+        ),
+      ],
+    );
+  }
 }
 
 // ── Day data helper ─────────────────────────────────────────────────────────
@@ -1654,11 +2089,15 @@ class _StatsScreenState extends State<StatsScreen>
 class _DayData {
   final String label;
   final int steps;
+  final int walkingSteps;
+  final int runningSteps;
   final int earned;
 
   const _DayData({
     required this.label,
     required this.steps,
+    required this.walkingSteps,
+    required this.runningSteps,
     required this.earned,
   });
 }
@@ -1669,6 +2108,12 @@ class _DayData {
 /// RepaintBoundary on the stats screen and captured to PNG for sharing.
 class _ShareStatCard extends StatelessWidget {
   final int steps;
+  final int walkingSteps;
+  final int runningSteps;
+  final double walkingDistanceKm;
+  final double runningDistanceKm;
+  final int walkingDurationMinutes;
+  final int runningDurationMinutes;
   final int earnedMinutes;
   final int usedMinutes;
   final int streak;
@@ -1677,6 +2122,12 @@ class _ShareStatCard extends StatelessWidget {
 
   const _ShareStatCard({
     required this.steps,
+    required this.walkingSteps,
+    required this.runningSteps,
+    required this.walkingDistanceKm,
+    required this.runningDistanceKm,
+    required this.walkingDurationMinutes,
+    required this.runningDurationMinutes,
     required this.earnedMinutes,
     required this.usedMinutes,
     required this.streak,
@@ -1801,11 +2252,21 @@ class _ShareStatCard extends StatelessWidget {
           // Stats row
           Row(
             children: [
+              _shareStatChip(
+                '🏃',
+                '${runningDistanceKm.toStringAsFixed(1)} km',
+                'run ($runningDurationMinutes m)',
+              ),
+              const SizedBox(width: 8),
+              _shareStatChip(
+                '🚶',
+                '${walkingDistanceKm.toStringAsFixed(1)} km',
+                'walk ($walkingDurationMinutes m)',
+              ),
+              const SizedBox(width: 8),
               _shareStatChip('⚡', '$earnedMinutes min', 'earned'),
-              const SizedBox(width: 10),
+              const SizedBox(width: 8),
               _shareStatChip('📱', '$usedMinutes min', 'used'),
-              const SizedBox(width: 10),
-              _shareStatChip('🚶', '$minutesPer1k min', '/1k steps'),
             ],
           ),
           const SizedBox(height: 20),

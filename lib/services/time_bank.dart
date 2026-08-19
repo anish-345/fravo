@@ -25,27 +25,60 @@ class DailyRecord {
   final int steps;
   final int earnedMinutes;
   final int usedMinutes;
+  final int walkingSteps;
+  final int runningSteps;
+  final int walkingDurationSeconds;
+  final int runningDurationSeconds;
 
   const DailyRecord({
     required this.date,
     required this.steps,
     required this.earnedMinutes,
     required this.usedMinutes,
+    this.walkingSteps = 0,
+    this.runningSteps = 0,
+    this.walkingDurationSeconds = 0,
+    this.runningDurationSeconds = 0,
   });
+
+  double get walkingDistanceKm => (walkingSteps * 0.762) / 1000.0;
+  double get runningDistanceKm => (runningSteps * 1.050) / 1000.0;
+  double get totalDistanceKm => walkingDistanceKm + runningDistanceKm;
+  int get walkingDurationMinutes => (walkingDurationSeconds / 60).round();
+  int get runningDurationMinutes => (runningDurationSeconds / 60).round();
+  int get totalActiveDurationMinutes =>
+      walkingDurationMinutes + runningDurationMinutes;
 
   Map<String, dynamic> toJson() => {
         'date': date,
         'steps': steps,
         'earnedMinutes': earnedMinutes,
         'usedMinutes': usedMinutes,
+        'walkingSteps': walkingSteps,
+        'runningSteps': runningSteps,
+        'walkingDurationSeconds': walkingDurationSeconds,
+        'runningDurationSeconds': runningDurationSeconds,
       };
 
-  factory DailyRecord.fromJson(Map<String, dynamic> json) => DailyRecord(
-        date: json['date'] as String,
-        steps: (json['steps'] as num).toInt(),
-        earnedMinutes: (json['earnedMinutes'] as num).toInt(),
-        usedMinutes: (json['usedMinutes'] as num).toInt(),
-      );
+  factory DailyRecord.fromJson(Map<String, dynamic> json) {
+    final total = (json['steps'] as num?)?.toInt() ?? 0;
+    final walk = (json['walkingSteps'] as num?)?.toInt() ?? total;
+    final run = (json['runningSteps'] as num?)?.toInt() ?? 0;
+    final walkSec = (json['walkingDurationSeconds'] as num?)?.toInt() ??
+        ((walk / 100) * 60).round();
+    final runSec = (json['runningDurationSeconds'] as num?)?.toInt() ??
+        ((run / 160) * 60).round();
+    return DailyRecord(
+      date: json['date'] as String,
+      steps: total,
+      earnedMinutes: (json['earnedMinutes'] as num).toInt(),
+      usedMinutes: (json['usedMinutes'] as num).toInt(),
+      walkingSteps: walk,
+      runningSteps: run,
+      walkingDurationSeconds: walkSec,
+      runningDurationSeconds: runSec,
+    );
+  }
 }
 
 /// Persists step count and consumed screen time across multiple blocked apps.
@@ -65,6 +98,10 @@ class TimeBankService {
 
   // ── Keys ──────────────────────────────────────────────────────────────────
   static const String _totalStepsKey = 'totalStepsWalked';
+  static const String _walkingStepsKey = 'walkingStepsWalked';
+  static const String _runningStepsKey = 'runningStepsWalked';
+  static const String _walkingDurationSecondsKey = 'walkingDurationSeconds';
+  static const String _runningDurationSecondsKey = 'runningDurationSeconds';
   static const String _usedMinutesKey = 'usedMinutes';
 
   /// New: minutes rewarded per 1,000 steps (default 30).
@@ -183,6 +220,119 @@ class TimeBankService {
 
   int get totalStepsWalked => (_box?.get(_totalStepsKey) as num?)?.toInt() ?? 0;
 
+  /// Steps classified as walking today.
+  int get walkingSteps {
+    final stored = (_box?.get(_walkingStepsKey) as num?)?.toInt();
+    if (stored != null) return stored;
+    // Fallback: default to totalStepsWalked minus runningSteps
+    final total = totalStepsWalked;
+    final running = runningSteps;
+    return (total - running).clamp(0, total);
+  }
+
+  /// Steps classified as running today.
+  int get runningSteps =>
+      (_box?.get(_runningStepsKey) as num?)?.toInt() ?? 0;
+
+  /// Running step percentage ratio (0.0 to 1.0)
+  double get runningRatio =>
+      totalStepsWalked > 0 ? (runningSteps / totalStepsWalked).clamp(0.0, 1.0) : 0.0;
+
+  /// Walking step percentage ratio (0.0 to 1.0)
+  double get walkingRatio =>
+      totalStepsWalked > 0 ? (walkingSteps / totalStepsWalked).clamp(0.0, 1.0) : 0.0;
+
+  /// Active walking duration in seconds today.
+  int get walkingDurationSeconds {
+    final stored = (_box?.get(_walkingDurationSecondsKey) as num?)?.toInt();
+    if (stored != null && stored > 0) return stored;
+    // Fallback: approximate ~100 steps per minute
+    return ((walkingSteps / 100) * 60).round();
+  }
+
+  /// Active running duration in seconds today.
+  int get runningDurationSeconds {
+    final stored = (_box?.get(_runningDurationSecondsKey) as num?)?.toInt();
+    if (stored != null && stored > 0) return stored;
+    // Fallback: approximate ~160 steps per minute
+    return ((runningSteps / 160) * 60).round();
+  }
+
+  /// Total active moving duration in seconds today.
+  int get totalActiveDurationSeconds =>
+      walkingDurationSeconds + runningDurationSeconds;
+
+  /// Active walking duration in whole minutes.
+  int get walkingDurationMinutes => (walkingDurationSeconds / 60).round();
+
+  /// Active running duration in whole minutes.
+  int get runningDurationMinutes => (runningDurationSeconds / 60).round();
+
+  /// Total active duration in whole minutes.
+  int get totalActiveDurationMinutes =>
+      (totalActiveDurationSeconds / 60).round();
+
+  /// Walking distance in kilometers (adult stride ~0.762m).
+  double get walkingDistanceKm => (walkingSteps * 0.762) / 1000.0;
+
+  /// Running distance in kilometers (running stride ~1.05m).
+  double get runningDistanceKm => (runningSteps * 1.050) / 1000.0;
+
+  /// Total combined walking + running distance in kilometers.
+  double get totalDistanceKm => walkingDistanceKm + runningDistanceKm;
+
+  /// Appends classified delta steps and duration to today's cumulative totals.
+  Future<void> addClassifiedStepDelta({
+    required int walkingDelta,
+    required int runningDelta,
+    int walkingSecondsDelta = 0,
+    int runningSecondsDelta = 0,
+  }) async {
+    if (!validateDeviceClock()) return;
+    final today = _todayString;
+    final lastStepsDay = (_box?.get(_lastStepsDayKey) as String?) ?? today;
+
+    if (lastStepsDay != today) {
+      await _box?.put(_totalStepsKey, walkingDelta + runningDelta);
+      await _box?.put(_walkingStepsKey, walkingDelta);
+      await _box?.put(_runningStepsKey, runningDelta);
+      await _box?.put(_walkingDurationSecondsKey, walkingSecondsDelta);
+      await _box?.put(_runningDurationSecondsKey, runningSecondsDelta);
+      await _box?.put(_lastStepsDayKey, today);
+    } else {
+      final newWalking = walkingSteps + walkingDelta;
+      final newRunning = runningSteps + runningDelta;
+      final newTotal = newWalking + newRunning;
+      final newWalkSec = walkingDurationSeconds + walkingSecondsDelta;
+      final newRunSec = runningDurationSeconds + runningSecondsDelta;
+      await _box?.put(_totalStepsKey, newTotal);
+      await _box?.put(_walkingStepsKey, newWalking);
+      await _box?.put(_runningStepsKey, newRunning);
+      await _box?.put(_walkingDurationSecondsKey, newWalkSec);
+      await _box?.put(_runningDurationSecondsKey, newRunSec);
+    }
+    syncHomeWidget();
+  }
+
+  /// Updates steps with classified walking and running totals.
+  Future<void> updateClassifiedSteps({
+    required int totalSteps,
+    required int walking,
+    required int running,
+  }) async {
+    if (!validateDeviceClock()) return;
+    final today = _todayString;
+    final lastStepsDay = (_box?.get(_lastStepsDayKey) as String?) ?? today;
+
+    if (lastStepsDay != today || totalSteps > totalStepsWalked) {
+      await _box?.put(_totalStepsKey, totalSteps);
+      await _box?.put(_walkingStepsKey, walking);
+      await _box?.put(_runningStepsKey, running);
+      await _box?.put(_lastStepsDayKey, today);
+      syncHomeWidget();
+    }
+  }
+
   Future<void> updateSteps(int newTotalSteps) async {
     if (!validateDeviceClock()) return;
     final today = _todayString;
@@ -191,7 +341,11 @@ class TimeBankService {
     // a lower/zero value that legitimately replaces yesterday's total.
     // Subsequent same-day updates stay monotonic.
     if (lastStepsDay != today || newTotalSteps > totalStepsWalked) {
+      final currentRun = runningSteps;
+      final newWalk = (newTotalSteps - currentRun).clamp(0, newTotalSteps);
+
       await _box?.put(_totalStepsKey, newTotalSteps);
+      await _box?.put(_walkingStepsKey, newWalk);
       await _box?.put(_lastStepsDayKey, today);
       syncHomeWidget();
     }
@@ -622,6 +776,10 @@ class TimeBankService {
       }
 
       await _box?.put(_totalStepsKey, 0);
+      await _box?.put(_walkingStepsKey, 0);
+      await _box?.put(_runningStepsKey, 0);
+      await _box?.put(_walkingDurationSecondsKey, 0);
+      await _box?.put(_runningDurationSecondsKey, 0);
       // Force the next step update to be trusted on the fresh day (it may be
       // 0 until the user actually walks).
       await _box?.put(_lastStepsDayKey, '');
@@ -666,6 +824,10 @@ class TimeBankService {
       steps: totalStepsWalked,
       earnedMinutes: earnedMinutes,
       usedMinutes: usedMinutes,
+      walkingSteps: walkingSteps,
+      runningSteps: runningSteps,
+      walkingDurationSeconds: walkingDurationSeconds,
+      runningDurationSeconds: runningDurationSeconds,
     );
 
     var history = List<DailyRecord>.from(dailyHistory);

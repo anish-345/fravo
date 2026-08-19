@@ -5,6 +5,7 @@ import 'package:hive_flutter/hive_flutter.dart';
 import 'package:pedometer/pedometer.dart';
 import 'package:permission_handler/permission_handler.dart';
 
+import 'activity_classifier.dart';
 import 'time_bank.dart';
 import 'blocker_service.dart';
 
@@ -12,7 +13,7 @@ import 'blocker_service.dart';
 /// **battery optimizations**:
 ///
 /// 1. **Pedometer stream** (hardware sensor) — fires on every step but is
-///    debounced to 3-second intervals to reduce CPU wake-ups by 90%.
+///    debounced to reduce CPU wake-ups, classified in real time into walking/running.
 /// 2. **Health Connect poll** — runs on adaptive timer (5-15 min based on
 ///    battery optimization state).
 /// 3. **Rate limiting** — Block state re-evaluation is limited to once per
@@ -25,11 +26,13 @@ class HealthService {
   final Health _health = Health();
   bool _configured = false;
   StreamSubscription<StepCount>? _pedometerSubscription;
+  StreamSubscription<PedestrianStatus>? _pedestrianStatusSubscription;
   Timer? _healthConnectTimer;
   Timer? _debounceTimer;
 
   int _latestSensorSteps = 0;
   int _pendingSteps = 0;
+  DateTime? _lastStepEventTimestamp;
 
   /// The day (yyyy-MM-dd) the current [_latestSensorSteps] value was sampled.
   /// Guards against using a stale pre-midnight count after a daily reset —
@@ -57,7 +60,7 @@ class HealthService {
 
   // ── Pedometer (hardware sensor, instant) ──────────────────────────────────
 
-  /// Starts the hardware step-count stream listener with **debouncing**.
+  /// Starts the hardware step-count stream listener with **debouncing** and **classification**.
   Future<void> initPedometerListener() async {
     if (_pedometerSubscription != null) return;
     try {
@@ -70,6 +73,7 @@ class HealthService {
       _pedometerSubscription = Pedometer.stepCountStream.listen(
         (StepCount event) {
           _pendingSteps = event.steps;
+          _lastStepEventTimestamp = event.timeStamp;
           _debounceTimer?.cancel();
           _debounceTimer = Timer(_pedometerDebounce, _processDebouncedSteps);
         },
@@ -78,15 +82,33 @@ class HealthService {
         },
       );
 
+      try {
+        _pedestrianStatusSubscription = Pedometer.pedestrianStatusStream.listen(
+          (PedestrianStatus event) {
+            debugPrint('🚶 Pedestrian status: ${event.status}');
+            if (event.status == 'stopped') {
+              ActivityClassifier.instance.currentModeNotifier.value =
+                  ActivityMode.stationary;
+            }
+          },
+          onError: (error) {
+            debugPrint('Pedestrian status stream error: $error');
+          },
+        );
+      } catch (e) {
+        debugPrint('PedestrianStatus listener error: $e');
+      }
+
       debugPrint(
-        '✅ Pedometer listener started with ${_pedometerDebounce.inSeconds}s debounce',
+        '✅ Pedometer listener started with ${_pedometerDebounce.inSeconds}s debounce & gait classifier',
       );
     } catch (e) {
       debugPrint('initPedometerListener error: $e');
     }
   }
 
-  /// Processes accumulated pedometer steps (called after debounce delay).
+  /// Processes accumulated pedometer steps (called after debounce delay) and
+  /// routes them into classified walking and running categories.
   Future<void> _processDebouncedSteps() async {
     if (_pendingSteps == 0) return;
 
@@ -101,22 +123,57 @@ class HealthService {
       final box = await Hive.openBox('pedometer_store');
       final storedDate = box.get('date') as String?;
       int baseline = (box.get('baseline') as int?) ?? hardwareSteps;
+      int storedLastHw = (box.get('lastHwSteps') as int?) ?? hardwareSteps;
 
       if (storedDate != today || baseline > hardwareSteps) {
         baseline = hardwareSteps;
+        storedLastHw = hardwareSteps;
         await box.put('date', today);
         await box.put('baseline', baseline);
+        await box.put('lastHwSteps', storedLastHw);
+        ActivityClassifier.instance.reset();
+      }
+
+      final stepDelta = hardwareSteps - storedLastHw;
+      if (stepDelta > 0) {
+        final classified = ActivityClassifier.instance.classifyHardwareStepDelta(
+          previousHardwareSteps: storedLastHw,
+          currentHardwareSteps: hardwareSteps,
+          timestamp: _lastStepEventTimestamp ?? now,
+        );
+
+        await box.put('lastHwSteps', hardwareSteps);
+        await TimeBankService.instance.addClassifiedStepDelta(
+          walkingDelta: classified.walkingSteps,
+          runningDelta: classified.runningSteps,
+          walkingSecondsDelta: classified.walkingDurationSeconds,
+          runningSecondsDelta: classified.runningDurationSeconds,
+        );
       }
 
       _latestSensorSteps = (hardwareSteps - baseline).clamp(0, 999999);
       _sensorStepsDate = today;
       debugPrint(
-        '📱 Pedometer: $_latestSensorSteps steps today (hw: $hardwareSteps)',
+        '📱 Pedometer: $_latestSensorSteps steps today (hw: $hardwareSteps, walk: ${TimeBankService.instance.walkingSteps}, run: ${TimeBankService.instance.runningSteps})',
       );
 
-      await _autoUpdateSteps(_latestSensorSteps);
+      await _evaluateBlockStateIfEarnedChanged();
     } catch (e) {
       debugPrint('_processDebouncedSteps error: $e');
+    }
+  }
+
+  Future<void> _evaluateBlockStateIfEarnedChanged() async {
+    final timeBank = TimeBankService.instance;
+    final prevEarned = timeBank.earnedMinutes;
+    final newEarned = timeBank.earnedMinutes;
+
+    if (newEarned != prevEarned) {
+      try {
+        await BlockerService.instance.evaluateBlockState();
+      } catch (e) {
+        debugPrint('_evaluateBlockState error: $e');
+      }
     }
   }
 
@@ -304,6 +361,7 @@ class HealthService {
 
   void dispose() {
     _pedometerSubscription?.cancel();
+    _pedestrianStatusSubscription?.cancel();
     _healthConnectTimer?.cancel();
     _debounceTimer?.cancel();
   }
