@@ -21,16 +21,42 @@ import 'widgets/dashboard_cards.dart';
 import 'widgets/premium_glass_system.dart';
 import 'package:hive_flutter/hive_flutter.dart';
 
+import 'package:sentry_flutter/sentry_flutter.dart';
+import 'package:shorebird_code_push/shorebird_code_push.dart';
+
 Future<void> main() async {
-  WidgetsFlutterBinding.ensureInitialized();
+  await SentryFlutter.init(
+    (options) {
+      options.dsn = 'https://ef3725e92e7ecf4e90066034930f710e@o4511955548372992.ingest.de.sentry.io/4511955554009168';
+      // Set tracesSampleRate to 1.0 to capture 100% of transactions for performance monitoring.
+      // We recommend adjusting this value in production.
+      options.tracesSampleRate = 1.0;
+      // The sample rate for profiling is relative to tracesSampleRate
+      options.profilesSampleRate = 1.0;
+    },
+    appRunner: () async {
+      WidgetsFlutterBinding.ensureInitialized();
 
-  await TimeBankService.instance.init();
-  await AppServices.instance.initialize();
-  await BlockerService.instance.initialize();
-  await HealthService.instance.initPedometerListener();
-  await BlockerService.instance.evaluateBlockState();
+      // Tag current Shorebird patch number in Sentry for instant visibility
+      try {
+        final shorebirdUpdater = ShorebirdUpdater();
+        final patch = await shorebirdUpdater.readCurrentPatch();
+        if (patch != null) {
+          Sentry.configureScope((scope) {
+            scope.setTag('shorebird_patch', patch.number.toString());
+          });
+        }
+      } catch (_) {}
 
-  runApp(const FravoApp());
+      await TimeBankService.instance.init();
+      await AppServices.instance.initialize();
+      await BlockerService.instance.initialize();
+      await HealthService.instance.initPedometerListener();
+      await BlockerService.instance.evaluateBlockState();
+
+      runApp(const FravoApp());
+    },
+  );
 }
 
 class FravoApp extends StatefulWidget {
@@ -62,6 +88,9 @@ class _FravoAppState extends State<FravoApp> {
     return MaterialApp(
       title: 'Fravo',
       debugShowCheckedModeBanner: false,
+      navigatorObservers: [
+        SentryNavigatorObserver(),
+      ],
       themeMode: ThemeMode.light,
       theme: ThemeData(
         brightness: Brightness.light,
