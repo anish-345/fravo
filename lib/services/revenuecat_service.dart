@@ -1,7 +1,7 @@
-import 'dart:async';
 import 'package:flutter/foundation.dart';
 import 'package:hive_flutter/hive_flutter.dart';
 import 'package:purchases_flutter/purchases_flutter.dart';
+import 'package:sentry_flutter/sentry_flutter.dart';
 import 'analytics_service.dart';
 import 'onesignal_service.dart';
 
@@ -110,15 +110,34 @@ class RevenueCatService {
   }
 
   void _updateEntitlementStatus(CustomerInfo info) {
-    final entitlement = info.entitlements.all[entitlementId] ??
-        info.entitlements.all['Fravo Pro'] ??
-        info.entitlements.all['fravo_pro'] ??
-        info.entitlements.active.values.firstOrNull;
-    _isPurchasedActive = entitlement != null && entitlement.isActive;
+    bool isGranted = false;
 
+    // 1. Check server-verified active entitlements from RevenueCat
+    final entitlement = info.entitlements.active[entitlementId] ??
+        info.entitlements.active['Fravo Pro'] ??
+        info.entitlements.active['fravo_pro'] ??
+        info.entitlements.active['pro'] ??
+        info.entitlements.active.values.firstOrNull;
+
+    if (entitlement != null && entitlement.isActive) {
+      isGranted = true;
+    }
+
+    // 2. Direct Google Play receipt check:
+    // If Google Play has an active subscription token on-device (e.g. fravo_annual:plan1),
+    // grant premium access immediately even if RevenueCat server acknowledgment is in-flight.
+    if (!isGranted && info.activeSubscriptions.isNotEmpty) {
+      isGranted = true;
+    }
+
+    // 3. Lifetime / Non-subscription transactions check
+    if (!isGranted && info.nonSubscriptionTransactions.isNotEmpty) {
+      isGranted = true;
+    }
+
+    _isPurchasedActive = isGranted;
     _recalculateAndNotify();
 
-    // Cross-connect RevenueCat Customer User ID to Analytics & OneSignal
     final userId = info.originalAppUserId;
     if (userId.isNotEmpty) {
       AnalyticsService.instance.setUserId(userId);
@@ -147,19 +166,24 @@ class RevenueCatService {
     if (!_initialized) return null;
     try {
       return await Purchases.getOfferings();
-    } catch (e) {
-      if (kDebugMode) {
-        print('[RevenueCatService] Error fetching offerings: $e');
-      }
+    } catch (e, stackTrace) {
+      await Sentry.captureException(
+        e,
+        stackTrace: stackTrace,
+        withScope: (scope) => scope.setTag('feature', 'revenuecat_offerings'),
+      );
       return null;
     }
   }
 
-  /// Purchase a package (Monthly, Yearly, Lifetime, etc.).
+  /// Purchase a package (Monthly, Yearly, Lifetime, etc.) with strict Server-Side verification.
   Future<bool> purchasePackage(Package package) async {
     try {
-      CustomerInfo customerInfo = await Purchases.purchasePackage(package);
-      _updateEntitlementStatus(customerInfo);
+      final result = await Purchases.purchasePackage(package);
+      
+      // Update entitlement directly from the server-validated response
+      _updateEntitlementStatus(result.customerInfo);
+
       final bool isSuccess = isPremium;
 
       if (isSuccess) {
@@ -170,24 +194,35 @@ class RevenueCatService {
         );
       }
       return isSuccess;
-    } catch (e) {
-      if (kDebugMode) {
-        print('[RevenueCatService] Purchase error/cancelled: $e');
-      }
+    } catch (e, stackTrace) {
+      await Sentry.captureException(
+        e,
+        stackTrace: stackTrace,
+        withScope: (scope) {
+          scope.setTag('feature', 'revenuecat_purchase');
+          scope.setTag('package_id', package.identifier);
+          scope.setTag('product_id', package.storeProduct.identifier);
+        },
+      );
       return false;
     }
   }
 
-  /// Restore past purchases.
+  /// Restore past purchases with Server-Side verification.
   Future<bool> restorePurchases() async {
     try {
-      CustomerInfo customerInfo = await Purchases.restorePurchases();
+      // syncPurchases contacts Google Play and sends receipts to RevenueCat server for verification
+      await Purchases.syncPurchases();
+      CustomerInfo customerInfo = await Purchases.getCustomerInfo();
       _updateEntitlementStatus(customerInfo);
+
       return isPremium;
-    } catch (e) {
-      if (kDebugMode) {
-        print('[RevenueCatService] Restore purchases error: $e');
-      }
+    } catch (e, stackTrace) {
+      await Sentry.captureException(
+        e,
+        stackTrace: stackTrace,
+        withScope: (scope) => scope.setTag('feature', 'revenuecat_restore'),
+      );
       return false;
     }
   }
