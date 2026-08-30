@@ -1,5 +1,6 @@
 import 'dart:async';
-
+import 'dart:ui';
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 
 import '../services/time_bank.dart';
@@ -55,7 +56,7 @@ class MissingPermissionsBanner extends StatelessWidget {
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 Text(
-                  'Action Required ($missingCount left)',
+                  'Pippy needs $missingCount more permission${missingCount > 1 ? 's' : ''} to protect you 🛡️',
                   style: const TextStyle(
                     fontSize: 14.5,
                     fontWeight: FontWeight.w800,
@@ -64,7 +65,7 @@ class MissingPermissionsBanner extends StatelessWidget {
                 ),
                 const SizedBox(height: 2),
                 Text(
-                  'Grant permissions to enable app blocking',
+                  'Finish focus setup in under a minute',
                   style: const TextStyle(
                     fontSize: 11.5,
                     color: Color(0xFF1A1A2E),
@@ -99,6 +100,7 @@ class MissingPermissionsBanner extends StatelessWidget {
 class TimeHeroCard extends StatelessWidget {
   final int remaining;
   final int remainingSeconds; // live second-precision countdown from local timer
+  final ValueListenable<int>? remainingSecondsListenable;
   final int earned;
   final int used;
   final int steps;
@@ -107,6 +109,7 @@ class TimeHeroCard extends StatelessWidget {
     super.key,
     required this.remaining,
     required this.remainingSeconds,
+    this.remainingSecondsListenable,
     required this.earned,
     required this.used,
     required this.steps,
@@ -123,6 +126,8 @@ class TimeHeroCard extends StatelessWidget {
     return PuffyGlassContainer(
       borderRadius: 32,
       padding: const EdgeInsets.all(24),
+      tintColor: isActive ? const Color(0xFFE8FDF3) : const Color(0xFFFFF1F2),
+      tintAlpha: 0.85,
       shadowBlur: 28,
       shadowOffset: const Offset(0, 14),
       child: Column(
@@ -147,76 +152,13 @@ class TimeHeroCard extends StatelessWidget {
                     valueColor: AlwaysStoppedAnimation<Color>(accent.last),
                   ),
                 ),
-                Column(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    FittedBox(
-                      fit: BoxFit.scaleDown,
-                      child: AnimatedSwitcher(
-                        duration: const Duration(milliseconds: 400),
-                        transitionBuilder: (child, anim) => FadeTransition(
-                          opacity: anim,
-                          child: ScaleTransition(
-                            scale: Tween<double>(begin: 0.88, end: 1)
-                                .animate(CurvedAnimation(
-                                  parent: anim,
-                                  curve: Curves.easeOut,
-                                )),
-                            child: child,
-                          ),
-                        ),
-                        child: remaining <= 0
-                            ? Text(
-                                '0',
-                                key: const ValueKey('blocked'),
-                                style: const TextStyle(
-                                  fontSize: 44,
-                                  fontWeight: FontWeight.w900,
-                                  height: 1,
-                                  letterSpacing: -1.2,
-                                  color: Color(0xFF1A1A2E),
-                                ),
-                              )
-                            : remainingSeconds < 300 // < 5 min: show MM:SS
-                                ? Text(
-                                    _formatMMSS(remainingSeconds),
-                                    key: ValueKey<int>(remainingSeconds),
-                                    style: const TextStyle(
-                                      fontSize: 32,
-                                      fontWeight: FontWeight.w900,
-                                      height: 1,
-                                      letterSpacing: -1.2,
-                                      color: Color(0xFF1A1A2E),
-                                    ),
-                                  )
-                                : Text(
-                                    '$remaining',
-                                    key: ValueKey<int>(remaining),
-                                    style: const TextStyle(
-                                      fontSize: 44,
-                                      fontWeight: FontWeight.w900,
-                                      height: 1,
-                                      letterSpacing: -1.2,
-                                      color: Color(0xFF1A1A2E),
-                                    ),
-                                  ),
-                      ),
-                    ),
-                    const SizedBox(height: 5),
-                    Text(
-                      remaining <= 0
-                          ? 'blocked'
-                          : remainingSeconds < 300
-                              ? 'sec left'
-                              : 'min left',
-                      style: const TextStyle(
-                        fontSize: 12.5,
-                        fontWeight: FontWeight.w600,
-                        color: Color(0xFF1A1A2E),
-                      ),
-                    ),
-                  ],
-                ),
+                remainingSecondsListenable != null
+                    ? ValueListenableBuilder<int>(
+                        valueListenable: remainingSecondsListenable!,
+                        builder: (context, liveSeconds, _) =>
+                            _buildTimerDisplay(liveSeconds),
+                      )
+                    : _buildTimerDisplay(remainingSeconds),
               ],
             ),
           ),
@@ -290,6 +232,48 @@ class TimeHeroCard extends StatelessWidget {
     );
   }
 
+  Widget _buildTimerDisplay(int currentSec) {
+    final isBlocked = remaining <= 0 || currentSec <= 0;
+    final isMMSS = !isBlocked && currentSec < 300;
+
+    return Column(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        FittedBox(
+          fit: BoxFit.scaleDown,
+          child: Text(
+            isBlocked
+                ? '0'
+                : isMMSS
+                    ? _formatMMSS(currentSec)
+                    : '$remaining',
+            style: TextStyle(
+              fontSize: isMMSS ? 32 : 44,
+              fontWeight: FontWeight.w900,
+              height: 1,
+              letterSpacing: -1.2,
+              fontFeatures: const [FontFeature.tabularFigures()],
+              color: const Color(0xFF1A1A2E),
+            ),
+          ),
+        ),
+        const SizedBox(height: 5),
+        Text(
+          isBlocked
+              ? 'blocked'
+              : isMMSS
+                  ? 'sec left'
+                  : 'min left',
+          style: const TextStyle(
+            fontSize: 12.5,
+            fontWeight: FontWeight.w600,
+            color: Color(0xFF1A1A2E),
+          ),
+        ),
+      ],
+    );
+  }
+
   /// Formats seconds as MM:SS (e.g. 263 → "4:23").
   static String _formatMMSS(int totalSeconds) {
     final m = totalSeconds ~/ 60;
@@ -318,8 +302,8 @@ class HeroStatTile extends StatelessWidget {
   Widget build(BuildContext context) {
     return PuffyGlassContainer(
       borderRadius: 18,
-      tintColor: Colors.white,
-      tintAlpha: 0.6,
+      tintColor: const Color(0xFFF1F5F9),
+      tintAlpha: 0.75,
       shadowBlur: 10,
       shadowOffset: const Offset(0, 4),
       padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 13),
@@ -401,6 +385,8 @@ class BlockedAppsCard extends StatelessWidget {
     return PuffyGlassContainer(
       borderRadius: 28,
       padding: const EdgeInsets.all(22),
+      tintColor: const Color(0xFFF1F5F9),
+      tintAlpha: 0.85,
       shadowBlur: 22,
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -763,6 +749,8 @@ class WalkToEarnCard extends StatelessWidget {
     return PuffyGlassContainer(
       borderRadius: 28,
       padding: const EdgeInsets.all(20),
+      tintColor: const Color(0xFFE8FDF3),
+      tintAlpha: 0.85,
       shadowBlur: 22,
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
