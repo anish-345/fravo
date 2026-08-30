@@ -443,10 +443,9 @@ class CompanionService extends ChangeNotifier {
     notifyListeners();
   }
 
-  /// Check whether an accessory is unlocked (by referral count, streak, or Fravo Pro).
+  /// Check whether an accessory is unlocked (strictly by viral referral count).
   bool isAccessoryUnlocked(CompanionAccessory item) {
     if (item.requiredReferrals == 0) return true;
-    if (RevenueCatService.instance.isPremium) return true;
     final referrals = GrowthService.instance.referralCount;
     return referrals >= item.requiredReferrals;
   }

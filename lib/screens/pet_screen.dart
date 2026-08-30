@@ -680,7 +680,7 @@ class _PetScreenState extends State<PetScreen>
                           Text(
                             isUnlocked
                                 ? (isEquipped ? 'Equipped & Active ✓' : 'Unlocked · Tap to Equip')
-                                : 'Locked · Invite $requiredFriends friends or unlock Fravo Pro',
+                                : 'Locked · Invite $requiredFriends friend${requiredFriends > 1 ? 's' : ''} to unlock',
                             style: TextStyle(
                               fontSize: 11,
                               color: isUnlocked ? const Color(0xFF10B981) : const Color(0xFF64748B),

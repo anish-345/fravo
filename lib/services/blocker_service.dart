@@ -1,3 +1,4 @@
+import 'dart:convert';
 import 'dart:io';
 
 import 'package:flutter/material.dart';
@@ -414,45 +415,86 @@ class BlockerService {
 
   // ── App listing / icons ───────────────────────────────────────────────────
 
+  static const String _appCacheHiveKey = 'cached_installed_apps_json';
+
   Future<List<Map<String, dynamic>>> getInstalledApps({
     bool forceRefresh = false,
   }) async {
     if (!Platform.isAndroid) return [];
 
-    // Return cache if still fresh and not forcing a refresh.
+    // 1. In-memory cache hit
     final cacheAge = _appCacheTimestamp == null
         ? null
         : DateTime.now().difference(_appCacheTimestamp!);
     if (!forceRefresh &&
         _appCache != null &&
+        _appCache!.isNotEmpty &&
         cacheAge != null &&
         cacheAge < _cacheTtl) {
-      debugPrint(
-        'BlockerService: returning cached app list (age: ${cacheAge.inMinutes}m).',
-      );
       return _appCache!;
     }
 
+    // 2. Persistent disk cache hit (Hive) for instant 0ms cold opens
+    if (!forceRefresh && (_appCache == null || _appCache!.isEmpty)) {
+      try {
+        final box = await Hive.openBox('time_bank');
+        final rawJson = box.get(_appCacheHiveKey) as String?;
+        if (rawJson != null && rawJson.isNotEmpty) {
+          final decoded = (jsonDecode(rawJson) as List)
+              .map((e) => Map<String, dynamic>.from(e as Map))
+              .toList();
+          if (decoded.isNotEmpty) {
+            _appCache = decoded;
+            _appCacheTimestamp = DateTime.now();
+            _refreshAppCacheSilently();
+            return _appCache!;
+          }
+        }
+      } catch (e) {
+        debugPrint('BlockerService: error reading persistent app cache: $e');
+      }
+    }
+
+    // 3. Fresh fetch from package manager
     try {
-      debugPrint(
-        'BlockerService: fetching fresh app list from package manager...',
-      );
       final apps = await _blocker.getApps();
-      _appCache = apps;
-      _appCacheTimestamp = DateTime.now();
+      if (apps.isNotEmpty) {
+        _appCache = apps;
+        _appCacheTimestamp = DateTime.now();
+        try {
+          final box = await Hive.openBox('time_bank');
+          await box.put(_appCacheHiveKey, jsonEncode(apps));
+        } catch (_) {}
+      }
       return apps;
     } catch (e) {
       debugPrint('BlockerService.getInstalledApps error: $e');
-      // Return stale cache rather than empty list on error.
       return _appCache ?? [];
     }
   }
 
-  /// Clears the in-memory app list cache. Call this if you need fresh data
-  /// (e.g. the user installs/uninstalls an app during a session).
-  void clearAppCache() {
+  /// Silently refreshes the apps list in the background without blocking the UI
+  void _refreshAppCacheSilently() {
+    _blocker.getApps().then((freshApps) async {
+      if (freshApps.isNotEmpty) {
+        _appCache = freshApps;
+        _appCacheTimestamp = DateTime.now();
+        try {
+          final box = await Hive.openBox('time_bank');
+          await box.put(_appCacheHiveKey, jsonEncode(freshApps));
+        } catch (_) {}
+      }
+    }).catchError((_) {});
+  }
+
+  /// Clears the in-memory and on-disk app list cache.
+  Future<void> clearAppCache() async {
     _appCache = null;
     _appCacheTimestamp = null;
+    try {
+      final box = await Hive.openBox('time_bank');
+      await box.delete(_appCacheHiveKey);
+    } catch (_) {}
     debugPrint('BlockerService: app list cache cleared.');
   }
 

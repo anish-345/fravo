@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:zo_app_blocker/zo_app_blocker.dart';
 
 import '../screens/paywall_screen.dart';
+import '../services/admob_service.dart';
 import '../services/blocker_service.dart';
 import '../services/revenuecat_service.dart';
 import '../services/time_bank.dart';
@@ -341,11 +342,113 @@ class _AppSelectorSheetState extends State<AppSelectorSheet> {
   }
 
   void _applySelection() {
+    final newSet = _selectedApps.keys.toSet();
+    final originalSet = widget.selectedPackageNames;
+
+    // If selection hasn't changed at all, simply dismiss sheet
+    if (newSet.length == originalSet.length && newSet.containsAll(originalSet)) {
+      Navigator.of(context).pop();
+      return;
+    }
+
+    // Check if 10-minute cooldown requires watching a rewarded video ad
+    if (AdMobService.instance.shouldRequireAdForAppListChange()) {
+      _showOptInRewardedAdDialog();
+      return;
+    }
+
+    // Within 10-minute window: apply immediately
+    _commitSelection();
+  }
+
+  void _commitSelection() {
     widget.onAppsSelected(
       _selectedApps.keys.toList(),
       Map<String, String>.from(_selectedApps),
     );
     Navigator.of(context).pop();
+  }
+
+  void _showOptInRewardedAdDialog() {
+    showDialog(
+      context: context,
+      builder: (dialogCtx) => AlertDialog(
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(22)),
+        title: const Row(
+          children: [
+            Icon(Icons.play_circle_fill_rounded, color: Color(0xFF10B981), size: 26),
+            SizedBox(width: 8),
+            Text(
+              'Update Blocklist',
+              style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16),
+            ),
+          ],
+        ),
+        content: const Text(
+          'Watch a short video to update your blocked apps list. Your changes will be saved once the video finishes.',
+          style: TextStyle(fontSize: 13, color: Color(0xFF4B5563), height: 1.4),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(dialogCtx),
+            child: const Text('Cancel', style: TextStyle(color: Colors.grey)),
+          ),
+          FilledButton.icon(
+            style: FilledButton.styleFrom(
+              backgroundColor: const Color(0xFF10B981),
+              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+            ),
+            onPressed: () {
+              Navigator.pop(dialogCtx);
+              _playRewardedAdAndCommit();
+            },
+            icon: const Icon(Icons.play_arrow_rounded, size: 20),
+            label: const Text('Watch & Save'),
+          ),
+        ],
+      ),
+    );
+  }
+
+  void _playRewardedAdAndCommit() {
+    bool earned = false;
+    AdMobService.instance.showAppListChangeRewardedAd(
+      onRewardEarned: () {
+        earned = true;
+        _commitSelection();
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              content: Text('🎉 App list updated successfully!'),
+              backgroundColor: Color(0xFF10B981),
+              behavior: SnackBarBehavior.floating,
+            ),
+          );
+        }
+      },
+      onAdDismissed: () {
+        if (!earned && mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              content: Text('⚠️ Video skipped. App list was not modified.'),
+              backgroundColor: Color(0xFFE11D48),
+              behavior: SnackBarBehavior.floating,
+            ),
+          );
+        }
+      },
+      onAdFailed: () {
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              content: Text('⚠️ Video is not ready yet. Please try again in a moment.'),
+              backgroundColor: Color(0xFFF59E0B),
+              behavior: SnackBarBehavior.floating,
+            ),
+          );
+        }
+      },
+    );
   }
 
   void _showCustomPackageDialog() {
@@ -656,13 +759,17 @@ class _AppSelectorSheetState extends State<AppSelectorSheet> {
         child: Column(
           mainAxisAlignment: MainAxisAlignment.center,
           children: [
-            CircularProgressIndicator(),
-            SizedBox(height: 12),
-            Text('Loading your installed apps...'),
-            SizedBox(height: 4),
+            CircularProgressIndicator(
+              valueColor: AlwaysStoppedAnimation<Color>(Color(0xFF10B981)),
+            ),
+            SizedBox(height: 14),
             Text(
-              'This only happens once — results are cached.',
-              style: TextStyle(fontSize: 12, color: Colors.grey),
+              'Loading apps...',
+              style: TextStyle(
+                fontSize: 14,
+                fontWeight: FontWeight.w600,
+                color: Color(0xFF1F2937),
+              ),
             ),
           ],
         ),
