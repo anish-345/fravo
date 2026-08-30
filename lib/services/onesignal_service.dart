@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'package:flutter/foundation.dart';
 import 'package:onesignal_flutter/onesignal_flutter.dart';
+import 'growth_service.dart';
 
 /// Service managing OneSignal push notifications and user segment tagging.
 class OneSignalService {
@@ -32,6 +33,9 @@ class OneSignalService {
         }
         final launchUrl = event.notification.launchUrl;
         final additionalData = event.notification.additionalData;
+        if (additionalData != null && additionalData['action'] == 'referral_increment') {
+          GrowthService.instance.incrementReferralCount();
+        }
         _handleDeepLink(launchUrl: launchUrl, additionalData: additionalData);
       });
 
@@ -47,6 +51,10 @@ class OneSignalService {
       OneSignal.Notifications.addForegroundWillDisplayListener((event) {
         if (kDebugMode) {
           print('[OneSignalService] Foreground Notification Received: ${event.notification.title}');
+        }
+        final additionalData = event.notification.additionalData;
+        if (additionalData != null && additionalData['action'] == 'referral_increment') {
+          GrowthService.instance.incrementReferralCount();
         }
         event.notification.display();
       });
@@ -77,6 +85,43 @@ class OneSignalService {
         print('[OneSignalService] Error setting screen trigger: $e');
       }
     }
+  }
+
+  /// Sets permission health trigger for In-App Messaging alerts.
+  void setPermissionsTrigger({required bool healthy, required String missingKey}) {
+    try {
+      OneSignal.InAppMessages.addTrigger('permissions_healthy', healthy ? 'true' : 'false');
+      OneSignal.InAppMessages.addTrigger('missing_permission', missingKey);
+      if (kDebugMode) {
+        print('[OneSignalService] Set permissions trigger: healthy=$healthy, missing=$missingKey');
+      }
+    } catch (e) {
+      if (kDebugMode) {
+        print('[OneSignalService] Error setting permission trigger: $e');
+      }
+    }
+  }
+
+  /// Sets step milestone trigger for In-App celebration popups.
+  void setStepMilestoneTrigger(int steps) {
+    try {
+      final milestone = (steps ~/ 1000) * 1000;
+      OneSignal.InAppMessages.addTrigger('step_milestone', milestone.toString());
+    } catch (_) {}
+  }
+
+  /// Sets streak milestone trigger for In-App referral prompts.
+  void setStreakMilestoneTrigger(int streak) {
+    try {
+      OneSignal.InAppMessages.addTrigger('streak_milestone', streak.toString());
+    } catch (_) {}
+  }
+
+  /// Sets screen time depleted trigger.
+  void setTimeDepletedTrigger(bool isDepleted) {
+    try {
+      OneSignal.InAppMessages.addTrigger('time_depleted', isDepleted ? 'true' : 'false');
+    } catch (_) {}
   }
 
   /// Parse deep links and navigate directly to target screens.

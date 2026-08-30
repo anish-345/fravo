@@ -4,6 +4,7 @@ import 'package:purchases_flutter/purchases_flutter.dart';
 import 'package:sentry_flutter/sentry_flutter.dart';
 import 'analytics_service.dart';
 import 'onesignal_service.dart';
+import 'time_bank.dart';
 
 /// Service managing RevenueCat subscriptions and premium entitlement.
 class RevenueCatService {
@@ -51,9 +52,17 @@ class RevenueCatService {
     }
   }
 
-  /// Combined status: true if user has a purchased subscription OR an active 7-day trial.
+  /// Combined status: true if user has a purchased subscription OR an active 7-day trial OR cached premium in Hive.
   /// If the 7-day trial expires and no subscription is purchased, automatically resets to false (Free).
-  bool get isPremium => _isPurchasedActive || isReferralTrialActive;
+  bool get isPremium {
+    if (_isPurchasedActive || isReferralTrialActive) return true;
+    try {
+      final box = Hive.box('time_bank');
+      return (box.get(_hiveKey, defaultValue: false) as bool) || isReferralTrialActive;
+    } catch (_) {
+      return false;
+    }
+  }
 
   /// Activates a 7-day Free Fravo Premium Trial (e.g. upon redeeming an invite code).
   Future<void> activate7DayReferralTrial() async {
@@ -61,6 +70,9 @@ class RevenueCatService {
       final box = Hive.box('time_bank');
       final expiryMs = DateTime.now().add(const Duration(days: 7)).millisecondsSinceEpoch;
       await box.put(_referralTrialExpiryKey, expiryMs);
+      await box.put(_hiveKey, true);
+      _isPurchasedActive = true;
+      isPremiumNotifier.value = true;
       _recalculateAndNotify();
     } catch (e) {
       if (kDebugMode) {
@@ -75,6 +87,7 @@ class RevenueCatService {
     try {
       final box = Hive.box('time_bank');
       final cachedPremium = box.get(_hiveKey, defaultValue: false) as bool;
+      _isPurchasedActive = cachedPremium;
       isPremiumNotifier.value = cachedPremium || isReferralTrialActive;
     } catch (_) {}
 
@@ -159,6 +172,10 @@ class RevenueCatService {
     OneSignalService.instance.setPremiumStatus(effectivePremium);
     OneSignalService.instance.setUserTag('subscription_active', _isPurchasedActive ? 'true' : 'false');
     OneSignalService.instance.setUserTag('referral_trial_active', isReferralTrialActive ? 'true' : 'false');
+
+    try {
+      TimeBankService.instance.syncHomeWidget();
+    } catch (_) {}
   }
 
   /// Fetch active offerings from RevenueCat console.
@@ -229,11 +246,12 @@ class RevenueCatService {
 
   /// Development/Test helper to manually toggle premium status in offline mode.
   Future<void> toggleDebugPremium(bool enable) async {
+    _isPurchasedActive = enable;
     isPremiumNotifier.value = enable;
     try {
       final box = Hive.box('time_bank');
-      box.put(_hiveKey, enable);
+      await box.put(_hiveKey, enable);
     } catch (_) {}
-    await AnalyticsService.instance.setUserProperties(isPremium: enable);
+    _recalculateAndNotify();
   }
 }

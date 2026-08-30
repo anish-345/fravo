@@ -233,7 +233,8 @@ class TimeHeroCard extends StatelessWidget {
 
   Widget _buildTimerDisplay(int currentSec) {
     final isBlocked = remaining <= 0 || currentSec <= 0;
-    final isMMSS = !isBlocked && currentSec < 300;
+    // Show MM:SS only if there are sub-minute remainder seconds under 5 minutes
+    final isMMSS = !isBlocked && currentSec < 300 && (currentSec % 60 != 0);
 
     return Column(
       mainAxisSize: MainAxisSize.min,
@@ -247,7 +248,7 @@ class TimeHeroCard extends StatelessWidget {
                     ? _formatMMSS(currentSec)
                     : '$remaining',
             style: TextStyle(
-              fontSize: isMMSS ? 32 : 44,
+              fontSize: isMMSS ? 34 : 44,
               fontWeight: FontWeight.w900,
               height: 1,
               letterSpacing: -1.2,
@@ -261,7 +262,7 @@ class TimeHeroCard extends StatelessWidget {
           isBlocked
               ? 'blocked'
               : isMMSS
-                  ? 'sec left'
+                  ? 'time left'
                   : 'min left',
           style: const TextStyle(
             fontSize: 12.5,

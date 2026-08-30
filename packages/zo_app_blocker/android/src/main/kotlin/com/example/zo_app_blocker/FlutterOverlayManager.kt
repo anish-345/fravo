@@ -112,6 +112,29 @@ class FlutterOverlayManager(private val context: Context) {
                     context.startActivity(startMain)
                     result.success(null)
                 }
+                "openParentApp" -> {
+                    hideOverlay()
+                    try {
+                        val launchIntent = context.packageManager.getLaunchIntentForPackage(context.packageName)
+                        if (launchIntent != null) {
+                            launchIntent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_RESET_TASK_IF_NEEDED or Intent.FLAG_ACTIVITY_CLEAR_TOP)
+                            context.startActivity(launchIntent)
+                        } else {
+                            val deepLinkIntent = Intent(Intent.ACTION_VIEW, android.net.Uri.parse("fravo://screen_time"))
+                            deepLinkIntent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                            context.startActivity(deepLinkIntent)
+                        }
+                    } catch (e: Exception) {
+                        try {
+                            val deepLinkIntent = Intent(Intent.ACTION_VIEW, android.net.Uri.parse("fravo://screen_time"))
+                            deepLinkIntent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                            context.startActivity(deepLinkIntent)
+                        } catch (e2: Exception) {
+                            e2.printStackTrace()
+                        }
+                    }
+                    result.success(null)
+                }
                 "temporarySessionUnlock" -> {
                     currentBlockedPackage?.let { pkg ->
                         AppBlockerAccessibilityService.instance?.temporarySessionUnlock(pkg)

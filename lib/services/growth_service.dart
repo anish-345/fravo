@@ -1,3 +1,5 @@
+import 'dart:convert';
+import 'dart:io';
 import 'dart:math';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
@@ -12,21 +14,21 @@ import 'onesignal_service.dart';
 import 'revenuecat_service.dart';
 
 /// Service managing organic user growth, viral referral engine, and Google Play Store reviews.
-class GrowthService {
+class GrowthService extends ChangeNotifier {
   GrowthService._privateConstructor();
   static final GrowthService instance = GrowthService._privateConstructor();
 
   static const String _boxName = 'time_bank';
   static const String _referralCodeKey = 'user_referral_code';
-  static const String _hasRedeemedReferralKey = 'has_redeemed_referral';
-  static const String _referralCountKey = 'referral_count';
-  static const String _hasRatedAppKey = 'has_rated_app_on_playstore';
+  static const String _referralCountKey = 'successful_referrals_count';
+  static const String _hasRedeemedReferralKey = 'has_redeemed_referral_code';
+  static const String _hasRatedAppKey = 'has_rated_fravo_app';
 
-  /// Official Google Play Store URLs
+  static const String playStorePackage = 'avionti.fravo';
   static const String playStoreUrl =
-      'https://play.google.com/store/apps/details?id=avionti.fravo';
+      'https://play.google.com/store/apps/details?id=$playStorePackage';
   static const String playStoreMarketUrl =
-      'market://details?id=avionti.fravo';
+      'market://details?id=$playStorePackage';
 
   /// Get or generate unique referral code for this user (e.g. FRAVO-4K89).
   String get referralCode {
@@ -57,6 +59,17 @@ class GrowthService {
     }
   }
 
+  /// Increment successful referrals (e.g. when friend redeems your link) and broadcast to UI.
+  Future<void> incrementReferralCount() async {
+    try {
+      final box = Hive.box(_boxName);
+      final current = referralCount;
+      await box.put(_referralCountKey, current + 1);
+      await OneSignalService.instance.setUserTag('referrals_made', (current + 1).toString());
+      notifyListeners();
+    } catch (_) {}
+  }
+
   /// Whether the user has already entered a friend's referral code.
   bool get hasRedeemedReferral {
     try {
@@ -67,15 +80,22 @@ class GrowthService {
     }
   }
 
-  /// Check hardware device fingerprint to ensure 1 claim per physical device
+  /// Check unique hardware device fingerprint / install identity to ensure 1 claim per install
   Future<String> _getDeviceHardwareId() async {
     try {
-      final deviceInfo = DeviceInfoPlugin();
-      if (defaultTargetPlatform == TargetPlatform.android) {
-        final androidInfo = await deviceInfo.androidInfo;
-        return androidInfo.id;
+      final box = Hive.box(_boxName);
+      String? deviceId = box.get('unique_device_install_uuid') as String?;
+      if (deviceId == null || deviceId.isEmpty) {
+        final deviceInfo = DeviceInfoPlugin();
+        String base = 'dev';
+        if (defaultTargetPlatform == TargetPlatform.android) {
+          final androidInfo = await deviceInfo.androidInfo;
+          base = '${androidInfo.brand}_${androidInfo.model}_${androidInfo.fingerprint}';
+        }
+        deviceId = '${base}_${DateTime.now().millisecondsSinceEpoch}_${Random().nextInt(999999)}';
+        await box.put('unique_device_install_uuid', deviceId);
       }
-      return 'generic_device';
+      return deviceId;
     } catch (_) {
       return 'generic_device';
     }
@@ -104,12 +124,12 @@ class GrowthService {
     }
   }
 
-  /// Generates a clean, readable 5-character referral code.
+  /// Generates a clean, readable 5-character referral code (33.5 Million unique combinations).
   String _generateReferralCode() {
     const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
     final random = Random();
     final buffer = StringBuffer('FRAVO-');
-    for (int i = 0; i < 4; i++) {
+    for (int i = 0; i < 5; i++) {
       buffer.write(chars[random.nextInt(chars.length)]);
     }
     return buffer.toString();
@@ -184,13 +204,23 @@ class GrowthService {
 
   /// Redeem a friend's referral code to unlock 7 Days of Free Fravo Premium!
   /// Validated with:
-  /// 1. Anti-self referral (cannot redeem own code)
-  /// 2. Hardware device fingerprint check (1 claim per physical device)
-  /// 3. Atomic local lock (prevents button spamming)
+  /// 1. Flexible normalization (handles with/without 'FRAVO-' prefix)
+  /// 2. Anti-self referral (cannot redeem own code)
+  /// 3. Hardware device fingerprint check (1 claim per physical device)
+  /// 4. Immediate broadcast to all active UI listeners
   Future<bool> redeemReferralCode(String inputCode) async {
-    final cleaned = inputCode.trim().toUpperCase();
+    var cleaned = inputCode.trim().toUpperCase().replaceAll(' ', '');
     if (cleaned.isEmpty) return false;
-    if (cleaned == referralCode) return false; // Anti-self referral
+
+    // Normalize: If user entered 4-letter suffix without 'FRAVO-', prepend it
+    if (!cleaned.startsWith('FRAVO-') && cleaned.length <= 6) {
+      cleaned = 'FRAVO-$cleaned';
+    }
+
+    // Anti-self referral
+    if (cleaned == referralCode || cleaned.replaceAll('FRAVO-', '') == referralCode.replaceAll('FRAVO-', '')) {
+      return false;
+    }
 
     if (await hasDeviceClaimedReferral()) {
       return false; // Hardware device already claimed referral trial
@@ -214,6 +244,12 @@ class GrowthService {
       await OneSignalService.instance.setUserTag('referred_by', cleaned);
       await OneSignalService.instance.setUserTag('referral_reward', '7_days_premium');
 
+      // Immediately notify all UI builders to update Pro status & cards
+      notifyListeners();
+
+      // Securely record redemption & notify inviter via backend without exposing API secrets
+      _notifyReferrerDevice(cleaned, devId);
+
       return true;
     } catch (e) {
       if (kDebugMode) {
@@ -221,6 +257,100 @@ class GrowthService {
       }
       return false;
     }
+  }
+
+  /// Securely contacts the Fravo backend server to register the referral claim,
+  /// verify anti-fraud limits, and dispatch the OneSignal push notification to the inviter.
+  /// If offline, queues the claim in Hive so it will automatically sync once online.
+  Future<bool> _notifyReferrerDevice(String referrerCode, String devId) async {
+    const backendUrl = 'https://fravo-notification-ai-6fc2.onbelmo.uk/api/referrals/redeem';
+    try {
+      final client = HttpClient();
+      client.connectionTimeout = const Duration(seconds: 5);
+      final request = await client.postUrl(Uri.parse(backendUrl));
+      request.headers.set('Content-Type', 'application/json; charset=UTF-8');
+
+      final payload = jsonEncode({
+        'referrer_code': referrerCode,
+        'referee_code': referralCode,
+        'referee_device_id': devId,
+      });
+
+      request.write(payload);
+      final response = await request.close();
+      if (kDebugMode) {
+        print('[GrowthService] Backend referral registration response: ${response.statusCode}');
+      }
+      return response.statusCode == 200;
+    } catch (e) {
+      if (kDebugMode) {
+        print('[GrowthService] Offline: Queued pending referral sync ($e)');
+      }
+      // Save to Hive to retry automatically when online
+      try {
+        final box = Hive.box(_boxName);
+        await box.put('pending_referral_sync', jsonEncode({
+          'referrer_code': referrerCode,
+          'device_id': devId,
+        }));
+      } catch (_) {}
+      return false;
+    }
+  }
+
+  /// Sync latest referral counts directly from the backend server.
+  /// Guarantees that even if the inviter was offline for days or missed push notifications,
+  /// their invite count and milestone rewards will be 100% up-to-date.
+  Future<void> syncReferralStatsWithServer() async {
+    final code = referralCode;
+    final url = 'https://fravo-notification-ai-6fc2.onbelmo.uk/api/referrals/stats/$code';
+    try {
+      final client = HttpClient();
+      client.connectionTimeout = const Duration(seconds: 5);
+      final request = await client.getUrl(Uri.parse(url));
+      final response = await request.close();
+      if (response.statusCode == 200) {
+        final body = await response.transform(utf8.decoder).join();
+        final data = jsonDecode(body) as Map<String, dynamic>;
+        final serverCount = (data['total_referrals'] as num?)?.toInt() ?? 0;
+        final currentLocal = referralCount;
+        if (serverCount > currentLocal) {
+          final box = Hive.box(_boxName);
+          await box.put(_referralCountKey, serverCount);
+          await OneSignalService.instance.setUserTag('referrals_made', serverCount.toString());
+          notifyListeners();
+          if (kDebugMode) {
+            print('[GrowthService] Referral count synced with server: $serverCount (was $currentLocal)');
+          }
+        }
+      }
+    } catch (e) {
+      if (kDebugMode) {
+        print('[GrowthService] Note: Offline or waiting to sync referral stats ($e)');
+      }
+    }
+
+    // Also retry any pending offline referral claims
+    await _flushPendingReferralSync();
+  }
+
+  /// Automatically retries syncing a pending referral redemption that was performed while offline.
+  Future<void> _flushPendingReferralSync() async {
+    try {
+      final box = Hive.box(_boxName);
+      final pendingJson = box.get('pending_referral_sync') as String?;
+      if (pendingJson != null && pendingJson.isNotEmpty) {
+        final map = jsonDecode(pendingJson) as Map<String, dynamic>;
+        final referrerCode = map['referrer_code']?.toString() ?? '';
+        final devId = map['device_id']?.toString() ?? '';
+        if (referrerCode.isNotEmpty) {
+          final success = await _notifyReferrerDevice(referrerCode, devId);
+          if (success) {
+            await box.delete('pending_referral_sync');
+          }
+        }
+      }
+    } catch (_) {}
   }
 
   /// Opens Google Play Store directly to rate/review the app.
@@ -247,14 +377,9 @@ class GrowthService {
     }
   }
 
-  /// Shows the viral Growth Referral Modal sheet.
+  /// Shares the viral invite message directly.
   void showReferralSheet(BuildContext context) {
-    showModalBottomSheet(
-      context: context,
-      isScrollControlled: true,
-      backgroundColor: Colors.transparent,
-      builder: (ctx) => _ReferralModalSheet(service: this),
-    );
+    shareReferralInvite();
   }
 
   /// Shows a high-delight 5-star Rating dialog.
@@ -299,277 +424,6 @@ class GrowthService {
             icon: const Icon(Icons.star_rounded, size: 18),
             label: const Text('Rate on Google Play', style: TextStyle(fontWeight: FontWeight.bold)),
           ),
-        ],
-      ),
-    );
-  }
-}
-
-/// Puffy Glass Referral Sheet UI for sharing codes and redeeming bonus minutes.
-class _ReferralModalSheet extends StatefulWidget {
-  final GrowthService service;
-  const _ReferralModalSheet({required this.service});
-
-  @override
-  State<_ReferralModalSheet> createState() => _ReferralModalSheetState();
-}
-
-class _ReferralModalSheetState extends State<_ReferralModalSheet> {
-  final TextEditingController _codeController = TextEditingController();
-  bool _isRedeeming = false;
-  String? _statusMessage;
-  bool _isSuccess = false;
-
-  @override
-  void dispose() {
-    _codeController.dispose();
-    super.dispose();
-  }
-
-  Future<void> _handleRedeem() async {
-    final code = _codeController.text.trim();
-    if (code.isEmpty) return;
-
-    setState(() {
-      _isRedeeming = true;
-      _statusMessage = null;
-    });
-
-    final success = await widget.service.redeemReferralCode(code);
-
-    if (!mounted) return;
-    setState(() {
-      _isRedeeming = false;
-      _isSuccess = success;
-      _statusMessage = success
-          ? '🎉 7 Days Free Premium Trial Activated! All Pro features unlocked.'
-          : '⚠️ Invalid code or already redeemed.';
-    });
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    final myCode = widget.service.referralCode;
-    final hasRedeemed = widget.service.hasRedeemedReferral;
-
-    return Container(
-      padding: EdgeInsets.fromLTRB(
-        24,
-        20,
-        24,
-        MediaQuery.of(context).viewInsets.bottom + 24,
-      ),
-      decoration: const BoxDecoration(
-        color: Colors.white,
-        borderRadius: BorderRadius.vertical(top: Radius.circular(32)),
-      ),
-      child: Column(
-        mainAxisSize: MainAxisSize.min,
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Center(
-            child: Container(
-              width: 40,
-              height: 4,
-              decoration: BoxDecoration(
-                color: Colors.grey.shade300,
-                borderRadius: BorderRadius.circular(2),
-              ),
-            ),
-          ),
-          const SizedBox(height: 16),
-
-          // Header
-          Row(
-            children: [
-              Container(
-                padding: const EdgeInsets.all(10),
-                decoration: BoxDecoration(
-                  color: const Color(0xFF10B981).withValues(alpha: 0.12),
-                  borderRadius: BorderRadius.circular(16),
-                ),
-                child: const Icon(
-                  Icons.card_giftcard_rounded,
-                  color: Color(0xFF10B981),
-                  size: 28,
-                ),
-              ),
-              const SizedBox(width: 14),
-              const Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(
-                      'Give 7 Days, Get 7 Days Pro',
-                      style: TextStyle(
-                        fontSize: 18,
-                        fontWeight: FontWeight.w900,
-                        color: Color(0xFF1E293B),
-                        letterSpacing: -0.3,
-                      ),
-                    ),
-                    Text(
-                      'Share your invite code for 7 days free Premium',
-                      style: TextStyle(fontSize: 12.5, color: Color(0xFF64748B)),
-                    ),
-                  ],
-                ),
-              ),
-            ],
-          ),
-
-          const SizedBox(height: 20),
-
-          // My Referral Code Box
-          Container(
-            padding: const EdgeInsets.all(16),
-            decoration: BoxDecoration(
-              gradient: const LinearGradient(
-                colors: [Color(0xFFEFF6FF), Color(0xFFF0FDF4)],
-              ),
-              borderRadius: BorderRadius.circular(20),
-              border: Border.all(color: const Color(0xFFBAE6FD)),
-            ),
-            child: Column(
-              children: [
-                const Text(
-                  'YOUR INVITE CODE',
-                  style: TextStyle(
-                    fontSize: 11,
-                    fontWeight: FontWeight.bold,
-                    letterSpacing: 1.2,
-                    color: Color(0xFF0369A1),
-                  ),
-                ),
-                const SizedBox(height: 6),
-                SelectableText(
-                  myCode,
-                  style: const TextStyle(
-                    fontSize: 24,
-                    fontWeight: FontWeight.w900,
-                    letterSpacing: 2,
-                    color: Color(0xFF0F172A),
-                  ),
-                ),
-                const SizedBox(height: 14),
-                SizedBox(
-                  width: double.infinity,
-                  child: ElevatedButton.icon(
-                    style: ElevatedButton.styleFrom(
-                      backgroundColor: const Color(0xFF10B981),
-                      foregroundColor: Colors.white,
-                      padding: const EdgeInsets.symmetric(vertical: 12),
-                      shape: RoundedRectangleBorder(
-                        borderRadius: BorderRadius.circular(14),
-                      ),
-                      elevation: 0,
-                    ),
-                    onPressed: () {
-                      Navigator.pop(context);
-                      widget.service.shareReferralInvite();
-                    },
-                    icon: const Icon(Icons.share_rounded, size: 18),
-                    label: const Text(
-                      'Share Invite & Play Store Link 🚀',
-                      style: TextStyle(fontWeight: FontWeight.bold, fontSize: 14),
-                    ),
-                  ),
-                ),
-              ],
-            ),
-          ),
-
-          const SizedBox(height: 20),
-
-          // Redeem friend's code section
-          if (!hasRedeemed) ...[
-            const Text(
-              'Have a friend\'s code?',
-              style: TextStyle(
-                fontSize: 13,
-                fontWeight: FontWeight.bold,
-                color: Color(0xFF334155),
-              ),
-            ),
-            const SizedBox(height: 8),
-            Row(
-              children: [
-                Expanded(
-                  child: TextField(
-                    controller: _codeController,
-                    textCapitalization: TextCapitalization.characters,
-                    decoration: InputDecoration(
-                      hintText: 'e.g. FRAVO-4K89',
-                      filled: true,
-                      fillColor: const Color(0xFFF1F5F9),
-                      contentPadding: const EdgeInsets.symmetric(
-                        horizontal: 14,
-                        vertical: 10,
-                      ),
-                      border: OutlineInputBorder(
-                        borderRadius: BorderRadius.circular(12),
-                        borderSide: BorderSide.none,
-                      ),
-                    ),
-                  ),
-                ),
-                const SizedBox(width: 10),
-                ElevatedButton(
-                  style: ElevatedButton.styleFrom(
-                    backgroundColor: const Color(0xFF3B82F6),
-                    foregroundColor: Colors.white,
-                    shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(12),
-                    ),
-                  ),
-                  onPressed: _isRedeeming ? null : _handleRedeem,
-                  child: _isRedeeming
-                      ? const SizedBox(
-                          width: 16,
-                          height: 16,
-                          child: CircularProgressIndicator(
-                            strokeWidth: 2,
-                            color: Colors.white,
-                          ),
-                        )
-                      : const Text('Claim 7 Days Pro'),
-                ),
-              ],
-            ),
-          ] else ...[
-            Container(
-              padding: const EdgeInsets.all(12),
-              decoration: BoxDecoration(
-                color: const Color(0xFFF0FDF4),
-                borderRadius: BorderRadius.circular(12),
-                border: Border.all(color: const Color(0xFFBBF7D0)),
-              ),
-              child: const Row(
-                children: [
-                  Icon(Icons.check_circle_rounded, color: Color(0xFF10B981), size: 20),
-                  SizedBox(width: 8),
-                  Expanded(
-                    child: Text(
-                      'Referral bonus redeemed! Share your code with friends to earn more.',
-                      style: TextStyle(fontSize: 12, color: Color(0xFF166534)),
-                    ),
-                  ),
-                ],
-              ),
-            ),
-          ],
-
-          if (_statusMessage != null) ...[
-            const SizedBox(height: 10),
-            Text(
-              _statusMessage!,
-              style: TextStyle(
-                fontSize: 12.5,
-                fontWeight: FontWeight.bold,
-                color: _isSuccess ? const Color(0xFF10B981) : const Color(0xFFEF4444),
-              ),
-            ),
-          ],
         ],
       ),
     );

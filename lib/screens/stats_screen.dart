@@ -11,7 +11,6 @@ import '../services/growth_service.dart';
 import '../services/health_service.dart';
 import '../services/onesignal_service.dart';
 import '../services/time_bank.dart';
-import '../widgets/app_selector_sheet.dart';
 import '../widgets/premium_glass_system.dart';
 
 class StatsScreen extends StatefulWidget {
@@ -281,7 +280,6 @@ class _StatsScreenState extends State<StatsScreen>
     final used = _timeBank.usedMinutes;
     final remaining = _timeBank.remainingScreenTime;
     final minutesPer1k = _timeBank.minutesPer1kSteps;
-    final blockedApps = _timeBank.blockedPackageDisplayNames;
     final goal = _timeBank.customStepGoal;
     final streak = _timeBank.currentStreakDays;
 
@@ -297,24 +295,26 @@ class _StatsScreenState extends State<StatsScreen>
       appBar: AppBar(
         backgroundColor: Colors.transparent,
         elevation: 0,
-        leading: GestureDetector(
-          onTap: () => Navigator.pop(context),
-          child: Padding(
-            padding: const EdgeInsets.all(8),
-            child: PuffyGlassContainer(
-              borderRadius: 14,
-              tintAlpha: 0.7,
-              shadowBlur: 10,
-              shadowOffset: const Offset(0, 4),
-              padding: const EdgeInsets.all(8),
-              child: const Icon(
-                Icons.arrow_back_ios_new_rounded,
-                color: Color(0xFF1A1A2E),
-                size: 18,
-              ),
-            ),
-          ),
-        ),
+        leading: Navigator.canPop(context)
+            ? GestureDetector(
+                onTap: () => Navigator.pop(context),
+                child: Padding(
+                  padding: const EdgeInsets.all(8),
+                  child: PuffyGlassContainer(
+                    borderRadius: 14,
+                    tintAlpha: 0.7,
+                    shadowBlur: 10,
+                    shadowOffset: const Offset(0, 4),
+                    padding: const EdgeInsets.all(8),
+                    child: const Icon(
+                      Icons.arrow_back_ios_new_rounded,
+                      color: Color(0xFF1A1A2E),
+                      size: 18,
+                    ),
+                  ),
+                ),
+              )
+            : null,
         title: Column(
           children: [
             const Text(
@@ -376,10 +376,7 @@ class _StatsScreenState extends State<StatsScreen>
               position: _slideAnimation,
               child: SafeArea(
                 child: SingleChildScrollView(
-                  padding: const EdgeInsets.symmetric(
-                    horizontal: 18,
-                    vertical: 12,
-                  ),
+                  padding: const EdgeInsets.fromLTRB(18, 12, 18, 110),
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.stretch,
                     children: [
@@ -388,88 +385,28 @@ class _StatsScreenState extends State<StatsScreen>
                         const SizedBox(height: 12),
                       ],
 
-                      // ── Anti-Bedrot Streak Banner ────────────────────────
-                      if (streak > 0) ...[
-                        _buildStreakBanner(streak),
-                        const SizedBox(height: 12),
-                      ],
+                      // ── 1. Today's Movement Hub (Zero Fatigue Consolidated Metrics) ──
+                      _buildActivityHub(
+                        steps: steps,
+                        distanceKm: distanceKm,
+                        calories: calories,
+                        activeMin: activeMin,
+                        goal: goal,
+                        streak: streak,
+                      ),
+                      const SizedBox(height: 16),
 
-                      // ── 7-Day Activity ───────────────────────────────────
+                      // ── 2. 7-Day Trend Chart ─────────────────────────────
                       _buildWeeklyChart(),
-                      const SizedBox(height: 14),
+                      const SizedBox(height: 16),
 
-                      // ── Steps & Distance Row ─────────────────────────────
-                      Row(
-                        children: [
-                          Expanded(
-                            child: _buildStepsCard(steps, minutesPer1k, goal),
-                          ),
-                          const SizedBox(width: 12),
-                          Expanded(
-                            child: _buildDistanceCard(distanceKm, steps),
-                          ),
-                        ],
-                      ),
-                      const SizedBox(height: 14),
-
-                      // ── Activity Stats Row (3 tiles) ─────────────────────
-                      Row(
-                        children: [
-                          Expanded(
-                            child: _metricTile(
-                              icon: Icons.local_fire_department_rounded,
-                              gradient: GlassPalette.peach,
-                              label: 'Calories',
-                              value: '$calories',
-                              unit: 'kcal',
-                            ),
-                          ),
-                          const SizedBox(width: 10),
-                          Expanded(
-                            child: _metricTile(
-                              icon: Icons.timer_outlined,
-                              gradient: GlassPalette.mint,
-                              label: 'Active',
-                              value: '$activeMin',
-                              unit: 'min',
-                            ),
-                          ),
-                          const SizedBox(width: 10),
-                          Expanded(
-                            child: _metricTile(
-                              icon: Icons.trending_up_rounded,
-                              gradient: GlassPalette.sky,
-                              label: 'Goal',
-                              value:
-                                  '${((steps / goal) * 100).clamp(0, 100).toInt()}',
-                              unit: '%',
-                            ),
-                          ),
-                        ],
-                      ),
-                      const SizedBox(height: 14),
-
-                      // ── Screen Time Breakdown ────────────────────────────
+                      // ── 3. Screen Time & Focus Balance ───────────────────
                       _buildScreenTimeBreakdown(earned, used, remaining),
-                      const SizedBox(height: 14),
+                      const SizedBox(height: 16),
 
-                      // ── Reward Rate ──────────────────────────────────────
-                      _buildRewardRateCard(steps, minutesPer1k),
-                      const SizedBox(height: 14),
-
-                      // ── Blocked Apps ─────────────────────────────────────
-                      if (blockedApps.isNotEmpty) ...[
-                        _buildBlockedAppsCard(blockedApps),
-                        const SizedBox(height: 14),
-                      ],
-
-                      // ── Share Achievement Card ────────────────────────────
+                      // ── 4. Share Achievement Button ──────────────────────
                       _buildShareButton(steps, earned, used, streak),
-                      const SizedBox(height: 14),
-
-                      // ── Motivational Tip ─────────────────────────────────
-                      _buildMotivationalTip(steps, goal),
-                      const SizedBox(height: 28),
+                      const SizedBox(height: 24),
                     ],
                   ),
                 ),
@@ -503,269 +440,161 @@ class _StatsScreenState extends State<StatsScreen>
     );
   }
 
-  // ── Streak Banner ─────────────────────────────────────────────────────────
+  // ── 1. Consolidated Activity Hub (Zero Scroll Fatigue) ────────────────────
 
-  Widget _buildStreakBanner(int streak) {
+  Widget _buildActivityHub({
+    required int steps,
+    required double distanceKm,
+    required int calories,
+    required int activeMin,
+    required int goal,
+    required int streak,
+  }) {
+    final progress = (steps / goal).clamp(0.0, 1.0);
     return PuffyGlassContainer(
-      borderRadius: 22,
-      gradient: const [Color(0xFFFFE0C2), Color(0xFFFFB685)],
-      tintAlpha: 0.0,
-      borderAlpha: 0.6,
-      highlightAlpha: 0.55,
+      borderRadius: 28,
+      padding: const EdgeInsets.all(18),
+      tintColor: const Color(0xFFF0FDF4),
       shadowBlur: 24,
-      shadowOffset: const Offset(0, 12),
-      padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 14),
-      child: Row(
-        children: [
-          const Text('🔥', style: TextStyle(fontSize: 28)),
-          const SizedBox(width: 12),
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  '$streak-Day Anti-Bedrot Streak!',
-                  style: const TextStyle(
-                    color: Color(0xFF1A1A2E),
-                    fontSize: 15,
-                    fontWeight: FontWeight.w900,
-                  ),
-                ),
-                const SizedBox(height: 2),
-                Text(
-                  streak == 1
-                      ? 'Day 1! Keep walking, stop the scroll. 💪'
-                      : 'You\'re on a roll — don\'t break the chain!',
-                  style: const TextStyle(
-                    color: Color(0xFF1A1A2E),
-                    fontSize: 12,
-                    fontWeight: FontWeight.w600,
-                  ),
-                ),
-              ],
-            ),
-          ),
-          Container(
-            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
-            decoration: BoxDecoration(
-              color: Colors.white.withValues(alpha: 0.6),
-              borderRadius: BorderRadius.circular(14),
-            ),
-            child: Text(
-              '🏆 $streak',
-              style: const TextStyle(
-                color: Color(0xFF1A1A2E),
-                fontWeight: FontWeight.w900,
-                fontSize: 14,
-              ),
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-
-  // ── Steps Card ───────────────────────────────────────────────────────────
-
-  Widget _buildStepsCard(int steps, int minutesPer1k, int goal) {
-    final ratio = (steps / goal).clamp(0.0, 1.0);
-
-    return PuffyGlassContainer(
-      borderRadius: 24,
-      padding: const EdgeInsets.all(18),
-      shadowBlur: 20,
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Container(
-            padding: const EdgeInsets.all(9),
-            decoration: BoxDecoration(
-              gradient: const LinearGradient(colors: GlassPalette.mint),
-              borderRadius: BorderRadius.circular(12),
-              boxShadow: [
-                BoxShadow(
-                  color: GlassPalette.mint.last.withValues(alpha: 0.4),
-                  blurRadius: 10,
-                  offset: const Offset(0, 4),
-                ),
-              ],
-            ),
-            child: const Icon(
-              Icons.directions_walk_rounded,
-              color: Color(0xFF1A1A2E),
-              size: 20,
-            ),
-          ),
-          const SizedBox(height: 12),
-          Text(
-            _formatSteps(steps),
-            style: const TextStyle(
-              color: Color(0xFF1A1A2E),
-              fontSize: 30,
-              fontWeight: FontWeight.w900,
-              height: 1,
-            ),
-          ),
-          const Text(
-            'steps today',
-            style: TextStyle(
-              color: Color(0xFF1A1A2E),
-              fontSize: 12,
-              fontWeight: FontWeight.w500,
-            ),
-          ),
-          const SizedBox(height: 12),
-          ClipRRect(
-            borderRadius: BorderRadius.circular(8),
-            child: TweenAnimationBuilder<double>(
-              tween: Tween(begin: 0, end: ratio),
-              duration: const Duration(milliseconds: 900),
-              curve: Curves.easeOut,
-              builder: (_, val, _) => LinearProgressIndicator(
-                value: val,
-                minHeight: 7,
-                backgroundColor: const Color(0xFF1A1A2E).withValues(alpha: 0.08),
-                valueColor: const AlwaysStoppedAnimation(
-                  Color(0xFF1A1A2E),
-                ),
-              ),
-            ),
-          ),
-          const SizedBox(height: 6),
-          GestureDetector(
-            onTap: _showStepGoalDialog,
-            child: Row(
-              children: [
-                Text(
-                  '${(ratio * 100).toInt()}% of ${goal >= 1000 ? '${(goal / 1000).toStringAsFixed(0)}k' : '$goal'} goal',
-                  style: const TextStyle(
-                    color: Color(0xFF1A1A2E),
-                    fontSize: 11,
-                    fontWeight: FontWeight.w500,
-                  ),
-                ),
-                const SizedBox(width: 4),
-                const Icon(
-                  Icons.edit_rounded,
-                  size: 11,
-                  color: Color(0xFF1A1A2E),
-                ),
-              ],
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-
-  // ── Distance Card ────────────────────────────────────────────────────────
-
-  Widget _buildDistanceCard(double km, int steps) {
-    final metres = (km * 1000).round();
-    final displayKm = km >= 1.0;
-
-    return PuffyGlassContainer(
-      borderRadius: 24,
-      padding: const EdgeInsets.all(18),
-      shadowBlur: 20,
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Container(
-            padding: const EdgeInsets.all(9),
-            decoration: BoxDecoration(
-              gradient: const LinearGradient(colors: GlassPalette.lavender),
-              borderRadius: BorderRadius.circular(12),
-              boxShadow: [
-                BoxShadow(
-                  color: GlassPalette.lavender.last.withValues(alpha: 0.4),
-                  blurRadius: 10,
-                  offset: const Offset(0, 4),
-                ),
-              ],
-            ),
-            child: const Icon(
-              Icons.route_rounded,
-              color: Color(0xFF1A1A2E),
-              size: 20,
-            ),
-          ),
-          const SizedBox(height: 12),
           Row(
-            crossAxisAlignment: CrossAxisAlignment.baseline,
-            textBaseline: TextBaseline.alphabetic,
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
             children: [
-              Text(
-                displayKm ? km.toStringAsFixed(2) : '$metres',
-                style: const TextStyle(
-                  color: Color(0xFF1A1A2E),
-                  fontSize: 30,
-                  fontWeight: FontWeight.w900,
-                  height: 1,
+              const Row(
+                children: [
+                  Text('⚡', style: TextStyle(fontSize: 20)),
+                  SizedBox(width: 8),
+                  Text(
+                    'Today\'s Movement',
+                    style: TextStyle(
+                      fontSize: 16,
+                      fontWeight: FontWeight.w800,
+                      color: Color(0xFF1E293B),
+                    ),
+                  ),
+                ],
+              ),
+              if (streak > 0)
+                Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                  decoration: BoxDecoration(
+                    color: const Color(0xFFF59E0B).withValues(alpha: 0.15),
+                    borderRadius: BorderRadius.circular(12),
+                    border: Border.all(color: const Color(0xFFF59E0B).withValues(alpha: 0.3)),
+                  ),
+                  child: Text(
+                    '🔥 $streak-Day Streak',
+                    style: const TextStyle(
+                      fontSize: 11.5,
+                      fontWeight: FontWeight.bold,
+                      color: Color(0xFFD97706),
+                    ),
+                  ),
+                ),
+            ],
+          ),
+          const SizedBox(height: 14),
+
+          // 2x2 Clean Glanceable Tiles
+          Row(
+            children: [
+              Expanded(
+                child: _metricTile(
+                  icon: Icons.directions_walk_rounded,
+                  gradient: GlassPalette.sky,
+                  label: 'Steps',
+                  value: _formatSteps(steps),
+                  unit: 'steps',
                 ),
               ),
-              const SizedBox(width: 4),
-              Text(
-                displayKm ? 'km' : 'm',
-                style: const TextStyle(
-                  color: Color(0xFF1A1A2E),
-                  fontSize: 14,
-                  fontWeight: FontWeight.w600,
+              const SizedBox(width: 10),
+              Expanded(
+                child: _metricTile(
+                  icon: Icons.place_rounded,
+                  gradient: GlassPalette.mint,
+                  label: 'Distance',
+                  value: distanceKm.toStringAsFixed(1),
+                  unit: 'km',
                 ),
               ),
             ],
           ),
-          const Text(
-            'distance walked',
-            style: TextStyle(
-              color: Color(0xFF1A1A2E),
-              fontSize: 12,
-              fontWeight: FontWeight.w500,
+          const SizedBox(height: 10),
+          Row(
+            children: [
+              Expanded(
+                child: _metricTile(
+                  icon: Icons.local_fire_department_rounded,
+                  gradient: GlassPalette.peach,
+                  label: 'Burned',
+                  value: '$calories',
+                  unit: 'kcal',
+                ),
+              ),
+              const SizedBox(width: 10),
+              Expanded(
+                child: _metricTile(
+                  icon: Icons.timer_outlined,
+                  gradient: GlassPalette.lavender,
+                  label: 'Active',
+                  value: '$activeMin',
+                  unit: 'min',
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 14),
+
+          // Daily Goal Progress Bar
+          GestureDetector(
+            onTap: _showStepGoalDialog,
+            child: Container(
+              padding: const EdgeInsets.all(12),
+              decoration: BoxDecoration(
+                color: Colors.white.withValues(alpha: 0.8),
+                borderRadius: BorderRadius.circular(16),
+                border: Border.all(color: const Color(0xFFE2E8F0)),
+              ),
+              child: Column(
+                children: [
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                    children: [
+                      Text(
+                        'Daily Goal: ${_formatSteps(goal)}',
+                        style: const TextStyle(
+                          fontSize: 12,
+                          fontWeight: FontWeight.w700,
+                          color: Color(0xFF334155),
+                        ),
+                      ),
+                      Text(
+                        '${(progress * 100).toInt()}% • Tap to change',
+                        style: const TextStyle(
+                          fontSize: 11.5,
+                          fontWeight: FontWeight.bold,
+                          color: Color(0xFF10B981),
+                        ),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 8),
+                  ClipRRect(
+                    borderRadius: BorderRadius.circular(8),
+                    child: LinearProgressIndicator(
+                      value: progress,
+                      minHeight: 8,
+                      backgroundColor: const Color(0xFFE2E8F0),
+                      valueColor: const AlwaysStoppedAnimation<Color>(Color(0xFF10B981)),
+                    ),
+                  ),
+                ],
+              ),
             ),
           ),
-          const SizedBox(height: 12),
-          // Distance milestones
-          _distanceMilestone(km),
         ],
-      ),
-    );
-  }
-
-  Widget _distanceMilestone(double km) {
-    final double nextMilestone;
-    final String milestoneName;
-
-    if (km < 1) {
-      nextMilestone = 1;
-      milestoneName = '1 km';
-    } else if (km < 5) {
-      nextMilestone = 5;
-      milestoneName = '5 km';
-    } else if (km < 10) {
-      nextMilestone = 10;
-      milestoneName = '10 km';
-    } else {
-      return PuffyGlassChip(
-        gradient: GlassPalette.lavender,
-        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
-        child: const Text(
-          '🏅 Milestone reached!',
-          style: TextStyle(
-            color: Color(0xFF1A1A2E),
-            fontSize: 11,
-            fontWeight: FontWeight.w800,
-          ),
-        ),
-      );
-    }
-
-    final remaining = ((nextMilestone - km) * 1000).round();
-    return Text(
-      '${remaining}m to $milestoneName',
-      style: const TextStyle(
-        color: Color(0xFF1A1A2E),
-        fontSize: 11,
-        fontWeight: FontWeight.w700,
       ),
     );
   }
@@ -780,59 +609,71 @@ class _StatsScreenState extends State<StatsScreen>
     required String unit,
   }) {
     return PuffyGlassContainer(
-      borderRadius: 22,
-      padding: const EdgeInsets.symmetric(vertical: 14, horizontal: 12),
-      shadowBlur: 16,
-      child: Column(
-        mainAxisSize: MainAxisSize.min,
+      borderRadius: 18,
+      padding: const EdgeInsets.symmetric(vertical: 12, horizontal: 8),
+      shadowBlur: 14,
+      tintColor: const Color(0xFFF8FAFC),
+      child: Row(
+        mainAxisAlignment: MainAxisAlignment.center,
         children: [
           Container(
-            padding: const EdgeInsets.all(8),
+            padding: const EdgeInsets.all(7),
             decoration: BoxDecoration(
               gradient: LinearGradient(colors: gradient),
-              borderRadius: BorderRadius.circular(12),
+              borderRadius: BorderRadius.circular(10),
               boxShadow: [
                 BoxShadow(
-                  color: gradient.last.withValues(alpha: 0.4),
-                  blurRadius: 8,
-                  offset: const Offset(0, 3),
+                  color: gradient.last.withValues(alpha: 0.3),
+                  blurRadius: 6,
+                  offset: const Offset(0, 2),
                 ),
               ],
             ),
-            child: Icon(icon, color: const Color(0xFF1A1A2E), size: 18),
+            child: Icon(icon, color: const Color(0xFF1A1A2E), size: 16),
           ),
-          const SizedBox(height: 8),
-          RichText(
-            textAlign: TextAlign.center,
-            text: TextSpan(
+          const SizedBox(width: 6),
+          Flexible(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              mainAxisSize: MainAxisSize.min,
               children: [
-                TextSpan(
-                  text: value,
-                  style: const TextStyle(
-                    color: Color(0xFF1A1A2E),
-                    fontSize: 20,
-                    fontWeight: FontWeight.w900,
-                    height: 1,
-                  ),
+                Row(
+                  mainAxisSize: MainAxisSize.min,
+                  crossAxisAlignment: CrossAxisAlignment.baseline,
+                  textBaseline: TextBaseline.alphabetic,
+                  children: [
+                    Text(
+                      value,
+                      style: const TextStyle(
+                        color: Color(0xFF1A1A2E),
+                        fontSize: 16,
+                        fontWeight: FontWeight.w900,
+                        height: 1,
+                      ),
+                    ),
+                    const SizedBox(width: 2),
+                    Text(
+                      unit,
+                      style: const TextStyle(
+                        color: Color(0xFF64748B),
+                        fontSize: 10.5,
+                        fontWeight: FontWeight.w700,
+                      ),
+                    ),
+                  ],
                 ),
-                TextSpan(
-                  text: unit,
+                const SizedBox(height: 2),
+                Text(
+                  label,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
                   style: const TextStyle(
-                    color: Color(0xFF1A1A2E),
-                    fontSize: 10,
-                    fontWeight: FontWeight.w700,
+                    color: Color(0xFF64748B),
+                    fontSize: 10.5,
+                    fontWeight: FontWeight.w600,
                   ),
                 ),
               ],
-            ),
-          ),
-          const SizedBox(height: 4),
-          Text(
-            label,
-            style: const TextStyle(
-              color: Color(0xFF1A1A2E),
-              fontSize: 10,
-              fontWeight: FontWeight.w700,
             ),
           ),
         ],
@@ -1265,272 +1106,6 @@ class _StatsScreenState extends State<StatsScreen>
     );
   }
 
-  // ── Reward Rate ──────────────────────────────────────────────────────────
-
-  Widget _buildRewardRateCard(int steps, int minutesPer1k) {
-    final milestonesDone = steps ~/ 1000;
-    final nextMilestone = (milestonesDone + 1) * 1000;
-    final stepsToNext = nextMilestone - steps;
-
-    return PuffyGlassContainer(
-      borderRadius: 28,
-      padding: const EdgeInsets.all(20),
-      shadowBlur: 22,
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Row(
-            children: [
-              Container(
-                padding: const EdgeInsets.all(9),
-                decoration: BoxDecoration(
-                  gradient: const LinearGradient(colors: GlassPalette.peach),
-                  borderRadius: BorderRadius.circular(12),
-                  boxShadow: [
-                    BoxShadow(
-                      color:
-                          GlassPalette.peach.last.withValues(alpha: 0.4),
-                      blurRadius: 10,
-                      offset: const Offset(0, 4),
-                    ),
-                  ],
-                ),
-                child: const Icon(
-                  Icons.star_rounded,
-                  color: Color(0xFF1A1A2E),
-                  size: 20,
-                ),
-              ),
-              const SizedBox(width: 12),
-              const Text(
-                'Reward Rate',
-                style: TextStyle(
-                  color: Color(0xFF1A1A2E),
-                  fontSize: 15,
-                  fontWeight: FontWeight.w800,
-                ),
-              ),
-            ],
-          ),
-          const SizedBox(height: 14),
-          PuffyGlassContainer(
-            borderRadius: 18,
-            tintColor: const Color(0xFFFFE0C2),
-            tintAlpha: 0.7,
-            padding: const EdgeInsets.all(14),
-            child: Row(
-              mainAxisAlignment: MainAxisAlignment.spaceAround,
-              children: [
-                _rateItem('1,000', 'steps', const Color(0xFF1A1A2E)),
-                const Icon(
-                  Icons.arrow_forward_rounded,
-                  color: Color(0xFF1A1A2E),
-                  size: 20,
-                ),
-                _rateItem('$minutesPer1k', 'min', const Color(0xFF1A1A2E)),
-              ],
-            ),
-          ),
-          const SizedBox(height: 12),
-
-          // Milestones earned
-          Row(
-            children: [
-              Icon(
-                Icons.emoji_events_rounded,
-                color: milestonesDone > 0
-                    ? GlassPalette.peach.last
-                    : const Color(0xFF1A1A2E).withValues(alpha: 0.3),
-                size: 16,
-              ),
-              const SizedBox(width: 6),
-              Text(
-                '$milestonesDone milestone${milestonesDone == 1 ? '' : 's'} earned today',
-                style: const TextStyle(
-                  color: Color(0xFF1A1A2E),
-                  fontSize: 12,
-                  fontWeight: FontWeight.w600,
-                ),
-              ),
-            ],
-          ),
-          const SizedBox(height: 4),
-          Text(
-            '$stepsToNext steps until next $minutesPer1k-min reward',
-            style: const TextStyle(
-              color: Color(0xFF1A1A2E),
-              fontSize: 12,
-              fontWeight: FontWeight.w500,
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-
-  Widget _rateItem(String value, String unit, Color color) {
-    return Column(
-      mainAxisSize: MainAxisSize.min,
-      children: [
-        Text(
-          value,
-          style: TextStyle(
-            color: color,
-            fontSize: 22,
-            fontWeight: FontWeight.w900,
-          ),
-        ),
-        Text(
-          unit,
-          style: const TextStyle(
-            color: Color(0xFF1A1A2E),
-            fontSize: 11,
-            fontWeight: FontWeight.w700,
-          ),
-        ),
-      ],
-    );
-  }
-
-  // ── Blocked Apps (with real icons) ──────────────────────────────────────
-
-  Widget _buildBlockedAppsCard(Map<String, String> blockedApps) {
-    return PuffyGlassContainer(
-      borderRadius: 28,
-      padding: const EdgeInsets.all(20),
-      shadowBlur: 22,
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Row(
-            children: [
-              Container(
-                padding: const EdgeInsets.all(9),
-                decoration: BoxDecoration(
-                  gradient: const LinearGradient(colors: GlassPalette.rose),
-                  borderRadius: BorderRadius.circular(12),
-                  boxShadow: [
-                    BoxShadow(
-                      color: GlassPalette.rose.last.withValues(alpha: 0.4),
-                      blurRadius: 10,
-                      offset: const Offset(0, 4),
-                    ),
-                  ],
-                ),
-                child: const Icon(
-                  Icons.block_rounded,
-                  color: Color(0xFF1A1A2E),
-                  size: 20,
-                ),
-              ),
-              const SizedBox(width: 12),
-              Text(
-                'Blocked Apps Usage (${blockedApps.length})',
-                style: const TextStyle(
-                  color: Color(0xFF1A1A2E),
-                  fontSize: 15,
-                  fontWeight: FontWeight.w800,
-                ),
-              ),
-            ],
-          ),
-          const SizedBox(height: 14),
-          Column(
-            children: blockedApps.entries.map((entry) {
-              final pkg = entry.key;
-              final name = entry.value;
-              final usedMins = _timeBank.getUsedMinutesForApp(pkg);
-              final usedStr = _timeBank.getFormattedUsedTimeForApp(pkg);
-              final totalEarned = _timeBank.earnedMinutes;
-              final appRatio = totalEarned > 0
-                  ? (usedMins / totalEarned).clamp(0.0, 1.0)
-                  : 0.0;
-
-              return Padding(
-                padding: const EdgeInsets.only(bottom: 10),
-                child: PuffyGlassContainer(
-                  borderRadius: 16,
-                  tintColor: const Color(0xFFFFD0D0),
-                  tintAlpha: 0.55,
-                  padding: const EdgeInsets.symmetric(
-                    horizontal: 14,
-                    vertical: 12,
-                  ),
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Row(
-                        children: [
-                          // Real app icon using AppIconWidget
-                          AppIconWidget(
-                            packageName: pkg,
-                            size: 36,
-                            fallbackIcon: Icons.phone_android_rounded,
-                            fallbackIconColor: const Color(0xFF1A1A2E),
-                            fallbackBgColor: const Color(0xFFFFD0D0),
-                          ),
-                          const SizedBox(width: 12),
-                          Expanded(
-                            child: Text(
-                              name,
-                              style: const TextStyle(
-                                color: Color(0xFF1A1A2E),
-                                fontSize: 14,
-                                fontWeight: FontWeight.w700,
-                              ),
-                            ),
-                          ),
-                          Container(
-                            padding: const EdgeInsets.symmetric(
-                              horizontal: 10,
-                              vertical: 4,
-                            ),
-                            decoration: BoxDecoration(
-                              color: Colors.white.withValues(alpha: 0.7),
-                              borderRadius: BorderRadius.circular(12),
-                            ),
-                            child: Text(
-                              usedStr,
-                              style: const TextStyle(
-                                color: Color(0xFF1A1A2E),
-                                fontSize: 12,
-                                fontWeight: FontWeight.w800,
-                              ),
-                            ),
-                          ),
-                        ],
-                      ),
-                      if (usedMins > 0) ...[
-                        const SizedBox(height: 8),
-                        ClipRRect(
-                          borderRadius: BorderRadius.circular(6),
-                          child: TweenAnimationBuilder<double>(
-                            tween: Tween(begin: 0, end: appRatio),
-                            duration: const Duration(milliseconds: 900),
-                            curve: Curves.easeOut,
-                            builder: (_, val, _) => LinearProgressIndicator(
-                              value: val,
-                              minHeight: 4,
-                              backgroundColor: const Color(0xFFFFD0D0)
-                                  .withValues(alpha: 0.4),
-                              valueColor: const AlwaysStoppedAnimation(
-                                Color(0xFFFFA8A8),
-                              ),
-                            ),
-                          ),
-                        ),
-                      ],
-                    ],
-                  ),
-                ),
-              );
-            }).toList(),
-          ),
-        ],
-      ),
-    );
-  }
-
   // ── Share Achievement Button ──────────────────────────────────────────────
 
   Widget _buildShareButton(int steps, int earned, int used, int streak) {
@@ -1539,81 +1114,6 @@ class _StatsScreenState extends State<StatsScreen>
       icon: _isSharing ? null : Icons.leaderboard_rounded,
       gradient: GlassPalette.lavender,
       onPressed: _isSharing ? null : _shareProgress,
-    );
-  }
-
-  // ── Motivational Tip ──────────────────────────────────────────────────────
-
-  Widget _buildMotivationalTip(int steps, int goal) {
-    final List<Color> gradient;
-    final Color textColor;
-    final IconData icon;
-    final String message;
-
-    if (steps >= goal) {
-      gradient = GlassPalette.peach;
-      textColor = const Color(0xFF1A1A2E);
-      icon = Icons.emoji_events_rounded;
-      message = '🏆 Goal crushed! You escaped bedrot mode today. Amazing!';
-    } else if (steps >= (goal * 0.75).toInt()) {
-      gradient = GlassPalette.mint;
-      textColor = const Color(0xFF1A1A2E);
-      icon = Icons.trending_up_rounded;
-      message =
-          '🔥 Almost there! Just ${_formatSteps(goal - steps)} more steps — don\'t bedrot now!';
-    } else if (steps >= (goal * 0.5).toInt()) {
-      gradient = GlassPalette.mint;
-      textColor = const Color(0xFF1A1A2E);
-      icon = Icons.directions_walk_rounded;
-      message =
-          '💪 Halfway! Stop scrolling, start walking. Your screen time is waiting.';
-    } else if (steps >= 1000) {
-      gradient = GlassPalette.sky;
-      textColor = const Color(0xFF1A1A2E);
-      icon = Icons.directions_walk_rounded;
-      message =
-          '👣 Good start! ${_timeBank.minutesPer1kSteps} more minutes unlock per 1k steps. Move that body!';
-    } else {
-      gradient = GlassPalette.sky;
-      textColor = const Color(0xFF1A1A2E);
-      icon = Icons.play_arrow_rounded;
-      message =
-          '📵 No bedrotting! Walk your first 1,000 steps to earn your screen time.';
-    }
-
-    return PuffyGlassContainer(
-      borderRadius: 22,
-      gradient: gradient,
-      tintAlpha: 0.0,
-      borderAlpha: 0.6,
-      highlightAlpha: 0.55,
-      shadowBlur: 22,
-      shadowOffset: const Offset(0, 12),
-      padding: const EdgeInsets.all(16),
-      child: Row(
-        children: [
-          Container(
-            padding: const EdgeInsets.all(10),
-            decoration: BoxDecoration(
-              color: Colors.white.withValues(alpha: 0.6),
-              shape: BoxShape.circle,
-            ),
-            child: Icon(icon, color: textColor, size: 22),
-          ),
-          const SizedBox(width: 12),
-          Expanded(
-            child: Text(
-              message,
-              style: TextStyle(
-                color: textColor,
-                fontSize: 13,
-                fontWeight: FontWeight.w700,
-                height: 1.4,
-              ),
-            ),
-          ),
-        ],
-      ),
     );
   }
 

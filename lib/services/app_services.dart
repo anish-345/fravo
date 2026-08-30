@@ -8,6 +8,7 @@ import '../firebase_options.dart';
 import 'admob_service.dart';
 import 'analytics_service.dart';
 import 'blocker_service.dart';
+import 'growth_service.dart';
 import 'onesignal_service.dart';
 import 'revenuecat_service.dart';
 import 'time_bank.dart';
@@ -122,6 +123,7 @@ class AppServices {
       }
 
       await OneSignalService.instance.setUserTags({
+        'my_referral_code': GrowthService.instance.referralCode,
         'is_premium': isPremium ? 'true' : 'false',
         'subscription_active': RevenueCatService.instance.isPurchasedPremium ? 'true' : 'false',
         'user_goal': goal,
@@ -143,6 +145,9 @@ class AppServices {
       if (kDebugMode) {
         print('[AppServices] User profile, permissions & churn risk batch-synced to OneSignal.');
       }
+
+      // 3. Sync live referral count from backend
+      await GrowthService.instance.syncReferralStatsWithServer();
     } catch (e) {
       if (kDebugMode) {
         print('[AppServices] Sync user profile error: $e');

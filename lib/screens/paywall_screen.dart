@@ -215,7 +215,7 @@ class _PaywallScreenState extends State<PaywallScreen> {
     } else {
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
-          content: const Text('No active subscriptions found. If you just purchased in testing, ensure your Google Play account has an active license test subscription.'),
+          content: const Text('No previous purchase found. Please ensure your Google Play account is logged in and try again.'),
           backgroundColor: const Color(0xFFEF4444),
           behavior: SnackBarBehavior.floating,
           duration: const Duration(seconds: 4),

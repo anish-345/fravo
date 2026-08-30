@@ -4,11 +4,13 @@ import 'package:zo_app_blocker/zo_app_blocker.dart';
 
 import '../services/analytics_service.dart';
 import '../services/blocker_service.dart';
+import '../services/companion_service.dart';
 import '../services/health_service.dart';
 import '../services/onesignal_service.dart';
 import '../services/revenuecat_service.dart';
 import '../services/time_bank.dart';
 import '../widgets/app_selector_sheet.dart';
+import '../widgets/pippy_avatar_widget.dart';
 import '../widgets/premium_glass_system.dart';
 import 'paywall_screen.dart';
 
@@ -28,7 +30,8 @@ class OnboardingScreen extends StatefulWidget {
   State<OnboardingScreen> createState() => _OnboardingScreenState();
 }
 
-class _OnboardingScreenState extends State<OnboardingScreen> {
+class _OnboardingScreenState extends State<OnboardingScreen>
+    with WidgetsBindingObserver {
   static const _kTopCulprits = [
     'com.instagram.android',
     'com.google.android.youtube',
@@ -43,6 +46,7 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
 
   List<AppInfo> _popularApps = [];
   bool _loadingApps = true;
+  bool _accessibilityEnabled = false;
 
   /// Selected app package names during the walkthrough.
   final Set<String> _selected = {};
@@ -53,17 +57,36 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
   @override
   void initState() {
     super.initState();
+    WidgetsBinding.instance.addObserver(this);
     AnalyticsService.instance.logEvent('onboarding_started');
     AnalyticsService.instance.logOnboardingStepViewed(0, 'goal_selection');
     OneSignalService.instance.setJourneyStage('onboarding_step_0');
     _loadPopularApps();
+    _checkAccessibilityStatus();
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.resumed) {
+      _checkAccessibilityStatus();
+    }
+  }
+
+  Future<void> _checkAccessibilityStatus() async {
+    try {
+      final perms = await BlockerService.instance.checkPermissionsStatus();
+      final isAcc = perms['accessibility'] == true;
+      if (mounted && isAcc != _accessibilityEnabled) {
+        setState(() => _accessibilityEnabled = isAcc);
+      }
+    } catch (_) {}
   }
 
   static const List<String> _stepNames = [
     'goal_selection',
     'pick_apps',
     'walk_to_earn',
-    'pause_preview',
+    'accessibility_setup',
   ];
 
   void _onStepChanged(int index) {
@@ -84,6 +107,7 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
 
   @override
   void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
     _pageController.dispose();
     _cardsController.dispose();
     super.dispose();
@@ -335,6 +359,10 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
                 ],
               ),
             ),
+
+            // ── Pippy Motion Guide Banner ──────────────────────────────
+            _buildPippyGuideBanner(),
+
             // ── PageView walkthrough ───────────────────────────────────
             Expanded(
               child: PageView(
@@ -348,7 +376,7 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
                     onNext: () => _animateToPage(3),
                     onSkip: _skipOnboarding,
                   ),
-                  _buildPausePreviewStep(),
+                  _buildAccessibilityEngineStep(),
                 ],
               ),
             ),
@@ -650,49 +678,281 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
     );
   }
 
-  // ── Step 3: We'll pause them ──────────────────────────────────────────────
+  // ── Pippy Dynamic Guide Banner ──────────────────────────────────────────
 
-  Widget _buildPausePreviewStep() {
+  Widget _buildPippyGuideBanner() {
+    final companion = CompanionService.instance;
+    PippyMood mood;
+    String dialogue;
+
+    switch (_currentPage) {
+      case 0:
+        mood = PippyMood.idle;
+        dialogue = 'Hi! I\'m ${companion.name}, your focus companion 🌱 What goal shall we conquer today?';
+        break;
+      case 1:
+        mood = PippyMood.alert;
+        dialogue = 'Pick your biggest distraction apps. I\'ll help lock them until you walk!';
+        break;
+      case 2:
+        mood = PippyMood.walking;
+        dialogue = 'Every 1,000 steps earns screen time! Let\'s get active together 🚶‍♂️';
+        break;
+      case 3:
+      default:
+        mood = _accessibilityEnabled ? PippyMood.celebrate : PippyMood.alert;
+        dialogue = _accessibilityEnabled
+            ? 'Awesome! Fravo Blocker Engine is active. Let\'s launch your dashboard! 🎉'
+            : 'Final step! Enable the Fravo Blocker Engine in Accessibility to shield your focus 🛡️';
+        break;
+    }
+
+    return Container(
+      margin: const EdgeInsets.fromLTRB(24, 6, 24, 6),
+      child: PuffyGlassContainer(
+        tintColor: const Color(0xFFE8FDF3),
+        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+        child: Row(
+          children: [
+            PippyAvatarWidget(
+              size: 52,
+              mood: mood,
+              aura: companion.aura,
+              accessory: companion.accessory,
+              streakDays: 0,
+            ),
+            const SizedBox(width: 12),
+            Expanded(
+              child: Text(
+                dialogue,
+                style: const TextStyle(
+                  fontSize: 12.5,
+                  fontWeight: FontWeight.w600,
+                  color: Color(0xFF065F46),
+                  height: 1.3,
+                ),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  // ── Step 3: Accessibility & Fravo Blocker Engine Guide ────────────────────
+
+  Widget _buildAccessibilityEngineStep() {
     return Padding(
       padding: const EdgeInsets.symmetric(horizontal: 24),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          const SizedBox(height: 24),
+          const SizedBox(height: 12),
           const Text(
-            'We\'ll pause them',
+            'Enable Blocker Engine',
             style: TextStyle(
-              fontSize: 28,
+              fontSize: 26,
               fontWeight: FontWeight.w900,
               color: Color(0xFF1F2937),
               letterSpacing: -0.5,
             ),
           ),
-          const SizedBox(height: 6),
+          const SizedBox(height: 4),
           const Text(
-            'When your screen time runs out, Fravo shows a gentle pause '
-            'screen instead of letting you swipe endlessly.',
+            'Fravo needs Accessibility Service permission to pause your selected apps when screen time expires.',
             style: TextStyle(
-              fontSize: 13.5,
+              fontSize: 13,
               color: Color(0xFF6B7280),
-              height: 1.4,
+              height: 1.35,
             ),
           ),
-          const SizedBox(height: 16),
-          Expanded(child: _BlockScreenPreview()),
-          const SizedBox(height: 16),
+          const SizedBox(height: 14),
+          Expanded(
+            child: SingleChildScrollView(
+              child: Column(
+                children: [
+                  _buildGuideStepCard(
+                    number: '1',
+                    icon: Icons.touch_app_rounded,
+                    iconBg: const Color(0xFFEFF6FF),
+                    iconColor: const Color(0xFF3B82F6),
+                    title: 'Open Accessibility Settings',
+                    subtitle: 'Tap "Downloaded apps" or "Installed services"',
+                  ),
+                  const SizedBox(height: 10),
+                  _buildGuideStepCard(
+                    number: '2',
+                    icon: Icons.shield_rounded,
+                    iconBg: const Color(0xFFF0FDF4),
+                    iconColor: const Color(0xFF10B981),
+                    title: 'Select "Fravo Blocker Engine"',
+                    subtitle: 'Find Fravo in the accessibility list',
+                  ),
+                  const SizedBox(height: 10),
+                  _buildGuideStepCard(
+                    number: '3',
+                    icon: Icons.toggle_on_rounded,
+                    iconBg: const Color(0xFFFFFBEB),
+                    iconColor: const Color(0xFFF59E0B),
+                    title: 'Toggle ON & Tap Allow',
+                    subtitle: 'Activate the automatic screen-time blocker',
+                  ),
+                  const SizedBox(height: 14),
+                  Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+                    decoration: BoxDecoration(
+                      color: _accessibilityEnabled
+                          ? const Color(0xFFECFDF5)
+                          : const Color(0xFFFFF7ED),
+                      borderRadius: BorderRadius.circular(14),
+                      border: Border.all(
+                        color: _accessibilityEnabled
+                            ? const Color(0xFFA7F3D0)
+                            : const Color(0xFFFED7AA),
+                      ),
+                    ),
+                    child: Row(
+                      children: [
+                        Icon(
+                          _accessibilityEnabled
+                              ? Icons.check_circle_rounded
+                              : Icons.info_outline_rounded,
+                          color: _accessibilityEnabled
+                              ? const Color(0xFF10B981)
+                              : const Color(0xFFF97316),
+                          size: 20,
+                        ),
+                        const SizedBox(width: 10),
+                        Expanded(
+                          child: Text(
+                            _accessibilityEnabled
+                                ? 'Fravo Blocker Engine is Active & Ready!'
+                                : 'Waiting for accessibility permission...',
+                            style: TextStyle(
+                              fontSize: 12.5,
+                              fontWeight: FontWeight.bold,
+                              color: _accessibilityEnabled
+                                  ? const Color(0xFF065F46)
+                                  : const Color(0xFF9A3412),
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ),
+          const SizedBox(height: 10),
           SizedBox(
             width: double.infinity,
             child: VibrantGlassButton(
-              label: 'Start earning time 🚀',
-              gradientColors: const [
-                Color(0xFF4A90E2),
-                Color(0xFF10B981),
-              ],
-              onPressed: _completeOnboarding,
+              label: _accessibilityEnabled
+                  ? 'Launch Fravo Dashboard 🚀'
+                  : 'Turn ON Fravo Engine 🛡️',
+              gradientColors: _accessibilityEnabled
+                  ? const [Color(0xFF10B981), Color(0xFF059669)]
+                  : const [Color(0xFF3B82F6), Color(0xFF10B981)],
+              onPressed: () async {
+                if (_accessibilityEnabled) {
+                  _completeOnboarding();
+                } else {
+                  await BlockerService.instance.requestAccessibilityPermission();
+                }
+              },
             ),
           ),
-          const SizedBox(height: 20),
+          if (!_accessibilityEnabled) ...[
+            const SizedBox(height: 4),
+            Center(
+              child: TextButton(
+                onPressed: _completeOnboarding,
+                child: const Text(
+                  'I\'ll enable this later in Settings',
+                  style: TextStyle(
+                    fontSize: 12,
+                    fontWeight: FontWeight.w600,
+                    color: Color(0xFF9CA3AF),
+                  ),
+                ),
+              ),
+            ),
+          ],
+          const SizedBox(height: 8),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildGuideStepCard({
+    required String number,
+    required IconData icon,
+    required Color iconBg,
+    required Color iconColor,
+    required String title,
+    required String subtitle,
+  }) {
+    return Container(
+      padding: const EdgeInsets.all(14),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(18),
+        border: Border.all(color: const Color(0xFFE5E7EB)),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withValues(alpha: 0.03),
+            blurRadius: 10,
+            offset: const Offset(0, 3),
+          ),
+        ],
+      ),
+      child: Row(
+        children: [
+          Container(
+            width: 28,
+            height: 28,
+            decoration: BoxDecoration(
+              color: iconBg,
+              shape: BoxShape.circle,
+              border: Border.all(color: iconColor.withValues(alpha: 0.3)),
+            ),
+            child: Center(
+              child: Text(
+                number,
+                style: TextStyle(
+                  color: iconColor,
+                  fontWeight: FontWeight.bold,
+                  fontSize: 13,
+                ),
+              ),
+            ),
+          ),
+          const SizedBox(width: 12),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  title,
+                  style: const TextStyle(
+                    fontSize: 14,
+                    fontWeight: FontWeight.bold,
+                    color: Color(0xFF1F2937),
+                  ),
+                ),
+                const SizedBox(height: 2),
+                Text(
+                  subtitle,
+                  style: const TextStyle(
+                    fontSize: 11.5,
+                    color: Color(0xFF6B7280),
+                  ),
+                ),
+              ],
+            ),
+          ),
+          Icon(icon, color: iconColor, size: 22),
         ],
       ),
     );
@@ -1308,94 +1568,4 @@ class _StepPermissionTile extends StatelessWidget {
     );
   }
 }
-
-// ── Step 3: Block screen preview ──────────────────────────────────────────────
-
-class _BlockScreenPreview extends StatelessWidget {
-  @override
-  Widget build(BuildContext context) {
-    return Center(
-      child: FractionallySizedBox(
-        widthFactor: 0.72,
-        child: AspectRatio(
-          aspectRatio: 0.62,
-          child: ClipRRect(
-            borderRadius: BorderRadius.circular(32),
-            child: Stack(
-              children: [
-                Container(
-                  decoration: const BoxDecoration(
-                    gradient: LinearGradient(
-                      begin: Alignment.topLeft,
-                      end: Alignment.bottomRight,
-                      colors: [Color(0xFF4A90E2), Color(0xFF8B5CF6)],
-                    ),
-                  ),
-                ),
-                Padding(
-                  padding: const EdgeInsets.all(22),
-                  child: Column(
-                    mainAxisAlignment: MainAxisAlignment.center,
-                    children: const [
-                      Icon(
-                        Icons.lock_rounded,
-                        color: Colors.white,
-                        size: 44,
-                      ),
-                      SizedBox(height: 14),
-                      Text(
-                        'Time\'s up for now 👋',
-                        style: TextStyle(
-                          color: Colors.white,
-                          fontSize: 18,
-                          fontWeight: FontWeight.w800,
-                        ),
-                      ),
-                      SizedBox(height: 8),
-                      Text(
-                        'Take a walk & come back — '
-                        'your screen time is waiting.',
-                        textAlign: TextAlign.center,
-                        style: TextStyle(
-                          color: Colors.white70,
-                          fontSize: 12,
-                          height: 1.4,
-                        ),
-                      ),
-                      SizedBox(height: 20),
-                      _WhitePill(text: 'Paused by Fravo'),
-                    ],
-                  ),
-                ),
-              ],
-            ),
-          ),
-        ),
-      ),
-    );
-  }
-}
-
-class _WhitePill extends StatelessWidget {
-  final String text;
-  const _WhitePill({required this.text});
-
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 7),
-      decoration: BoxDecoration(
-        color: Colors.white,
-        borderRadius: BorderRadius.circular(20),
-      ),
-      child: Text(
-        text,
-        style: const TextStyle(
-          color: Color(0xFF1F2937),
-          fontSize: 11,
-          fontWeight: FontWeight.w700,
-        ),
-      ),
-    );
-  }
-}
+

@@ -3,10 +3,15 @@ import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:hive_flutter/hive_flutter.dart';
+import 'package:url_launcher/url_launcher.dart';
 import 'package:zo_app_blocker/zo_app_blocker.dart';
 
-import 'time_bank.dart';
+import '../widgets/ambient_aurora_background.dart';
+import '../widgets/pippy_avatar_widget.dart';
+import '../widgets/premium_glass_system.dart';
+import 'companion_service.dart';
 import 'health_service.dart';
+import 'time_bank.dart';
 
 class BlockerService {
   BlockerService._();
@@ -137,11 +142,17 @@ class BlockerService {
           .checkActivityRecognitionPermission();
       final healthConnect = await HealthService.instance
           .checkHealthConnectPermission();
+      final isUsageGranted = usage == 'granted';
+      final isAccessibilityGranted = accessibility == 'granted';
+      final isOverlayGranted = overlay == 'granted';
+      final isNotificationGranted = notification == 'granted';
+
       return {
-        'usageStats': usage == 'granted',
-        'accessibility': accessibility == 'granted',
-        'overlay': overlay == 'granted',
-        'notification': notification == 'granted',
+        'usageStats': isUsageGranted,
+        'usage_stats': isUsageGranted,
+        'accessibility': isAccessibilityGranted,
+        'overlay': isOverlayGranted,
+        'notification': isNotificationGranted,
         'activityRecognition': activity,
         'healthConnect': healthConnect,
       };
@@ -149,6 +160,7 @@ class BlockerService {
       debugPrint('checkPermissionsStatus error: $e');
       return {
         'usageStats': false,
+        'usage_stats': false,
         'accessibility': false,
         'overlay': false,
         'notification': false,
@@ -506,14 +518,21 @@ class _BlockScreenState extends State<_BlockScreen>
   late AnimationController _anim;
   late Animation<double> _fadeIn;
   late Animation<Offset> _slideUp;
+
   int _minutesPer1k = 30;
+  CompanionAura _aura = CompanionAura.mint;
+  CompanionAccessory _accessory = CompanionAccessory.sprout;
+  CompanionPersonality _personality = CompanionPersonality.zen;
+  String _companionName = 'Pippy';
+  String _userName = 'Friend';
+  int _streakDays = 0;
 
   @override
   void initState() {
     super.initState();
     _anim = AnimationController(
       vsync: this,
-      duration: const Duration(milliseconds: 320),
+      duration: const Duration(milliseconds: 360),
     );
     _fadeIn = CurvedAnimation(parent: _anim, curve: Curves.easeOut);
     _slideUp = Tween<Offset>(
@@ -529,7 +548,50 @@ class _BlockScreenState extends State<_BlockScreen>
       await Hive.initFlutter();
       final box = await Hive.openBox('time_bank');
       final v = (box.get('minutesPer1kSteps') as int?) ?? 30;
-      if (mounted) setState(() => _minutesPer1k = v);
+      final name = (box.get('companion_name') as String?) ?? 'Pippy';
+      final userNick = (box.get('user_display_name') as String?) ?? 'Friend';
+      final streak = (box.get('currentStreakDays') as int?) ?? 0;
+
+      final isPremium = (box.get('is_premium_cached', defaultValue: false) as bool);
+
+      final auraStr = box.get('companion_aura') as String?;
+      CompanionAura aura = CompanionAura.mint;
+      if (auraStr != null && isPremium) {
+        aura = CompanionAura.values.firstWhere(
+          (e) => e.name == auraStr,
+          orElse: () => CompanionAura.mint,
+        );
+      }
+
+      final accStr = box.get('companion_accessory') as String?;
+      CompanionAccessory acc = CompanionAccessory.sprout;
+      if (accStr != null) {
+        acc = CompanionAccessory.values.firstWhere(
+          (e) => e.name == accStr,
+          orElse: () => CompanionAccessory.sprout,
+        );
+      }
+
+      final persStr = box.get('companion_personality') as String?;
+      CompanionPersonality pers = CompanionPersonality.zen;
+      if (persStr != null && isPremium) {
+        pers = CompanionPersonality.values.firstWhere(
+          (e) => e.name == persStr,
+          orElse: () => CompanionPersonality.zen,
+        );
+      }
+
+      if (mounted) {
+        setState(() {
+          _minutesPer1k = v;
+          _companionName = name;
+          _userName = userNick;
+          _streakDays = streak;
+          _aura = aura;
+          _accessory = acc;
+          _personality = pers;
+        });
+      }
     } catch (_) {}
   }
 
@@ -542,12 +604,41 @@ class _BlockScreenState extends State<_BlockScreen>
   static const _blockChannel = MethodChannel('zo_app_blocker_block_screen');
 
   /// Sends the user home and dismisses the overlay via the native service.
-  /// Native handles HOME intent, overlay removal, and dismiss-state tracking.
   Future<void> _goHome() async {
     try {
       await _blockChannel.invokeMethod<void>('dismissBlockScreen');
     } catch (e) {
       debugPrint('_goHome dismiss error: $e');
+    }
+  }
+
+  Future<void> _openFravo() async {
+    try {
+      // 1. Direct native launch (dismisses overlay and brings Fravo to foreground)
+      await _blockChannel.invokeMethod<void>('openParentApp');
+    } catch (_) {
+      try {
+        // 2. Fallback to OS-level deep link
+        await _blockChannel.invokeMethod<void>('dismissBlockScreen');
+        final uri = Uri.parse('fravo://screen_time');
+        await launchUrl(uri, mode: LaunchMode.externalApplication);
+      } catch (e) {
+        debugPrint('_openFravo deep link error: $e');
+        await _goHome();
+      }
+    }
+  }
+
+  String _getBlockerDialogue(String appName) {
+    switch (_personality) {
+      case CompanionPersonality.zen:
+        return '🧘 "Inhale calm, $_userName. A gentle stroll will awaken $appName."';
+      case CompanionPersonality.hype:
+        return '⚡ "Focus Bank is empty! Knock out a quick walk to unlock $appName!"';
+      case CompanionPersonality.coach:
+        return '🎯 "$_userName, focus protocol active. 1,000 steps = $_minutesPer1k min screen time."';
+      case CompanionPersonality.cozy:
+        return '🧸 "$_companionName is taking a cozy nap until we take a stroll together!"';
     }
   }
 
@@ -557,138 +648,196 @@ class _BlockScreenState extends State<_BlockScreen>
     final appIcon = widget.blockCtx.appIcon as Uint8List?;
 
     return Scaffold(
-      backgroundColor: const Color(0xFFF8F9FA),
-      body: FadeTransition(
-        opacity: _fadeIn,
-        child: SlideTransition(
-          position: _slideUp,
-          child: SafeArea(
-            child: Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 32, vertical: 32),
-              child: Column(
-                children: [
-                  const Spacer(flex: 2),
+      backgroundColor: const Color(0xFFF8FAFC),
+      body: AmbientAuroraBackground(
+        primaryGlow: _aura.deepColor,
+        secondaryGlow: const Color(0xFF10B981),
+        child: FadeTransition(
+          opacity: _fadeIn,
+          child: SlideTransition(
+            position: _slideUp,
+            child: SafeArea(
+              child: Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 20),
+                child: Column(
+                  children: [
+                    const Spacer(flex: 1),
 
-                  // ── App icon ──────────────────────────────────────────────
-                  Container(
-                    width: 88,
-                    height: 88,
-                    decoration: BoxDecoration(
-                      color: const Color(0xFFEEEEEE),
-                      borderRadius: BorderRadius.circular(22),
-                    ),
-                    child: appIcon != null
-                        ? ClipRRect(
-                            borderRadius: BorderRadius.circular(22),
-                            child: Image.memory(appIcon, fit: BoxFit.cover),
-                          )
-                        : const Icon(
-                            Icons.phone_android_rounded,
-                            size: 44,
-                            color: Color(0xFF9E9E9E),
+                    // ── Central Mascot Stage with Blocked App Icon ───────────
+                    Stack(
+                      clipBehavior: Clip.none,
+                      alignment: Alignment.bottomRight,
+                      children: [
+                        PuffyGlassContainer(
+                          borderRadius: 36,
+                          tintColor: _aura.topColor,
+                          padding: const EdgeInsets.all(16),
+                          child: PippyAvatarWidget(
+                            size: 130,
+                            mood: PippyMood.sleepy,
+                            aura: _aura,
+                            accessory: _accessory,
+                            streakDays: _streakDays,
                           ),
-                  ),
-                  const SizedBox(height: 20),
-
-                  // ── Headline ──────────────────────────────────────────────
-                  Text(
-                    appName,
-                    style: const TextStyle(
-                      fontSize: 22,
-                      fontWeight: FontWeight.w700,
-                      color: Color(0xFF1A1A1A),
-                      letterSpacing: -0.3,
-                    ),
-                  ),
-                  const SizedBox(height: 8),
-                  const Text(
-                    "You've used your screen time for today",
-                    textAlign: TextAlign.center,
-                    style: TextStyle(
-                      fontSize: 15,
-                      color: Color(0xFF757575),
-                      height: 1.4,
-                    ),
-                  ),
-
-                  const SizedBox(height: 32),
-
-                  // ── Divider ───────────────────────────────────────────────
-                  const Divider(color: Color(0xFFE0E0E0)),
-                  const SizedBox(height: 24),
-
-                  // ── Earn more tip ─────────────────────────────────────────
-                  Row(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Container(
-                        padding: const EdgeInsets.all(10),
-                        decoration: BoxDecoration(
-                          color: const Color(0xFFE8F5E9),
-                          borderRadius: BorderRadius.circular(12),
                         ),
-                        child: const Icon(
-                          Icons.directions_walk_rounded,
-                          color: Color(0xFF2E7D32),
-                          size: 22,
-                        ),
-                      ),
-                      const SizedBox(width: 14),
-                      Expanded(
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            const Text(
-                              'Walk to earn more time',
-                              style: TextStyle(
-                                fontSize: 14,
-                                fontWeight: FontWeight.w600,
-                                color: Color(0xFF1A1A1A),
+                        if (appIcon != null)
+                          Positioned(
+                            bottom: -4,
+                            right: -4,
+                            child: Container(
+                              width: 44,
+                              height: 44,
+                              decoration: BoxDecoration(
+                                shape: BoxShape.circle,
+                                color: Colors.white,
+                                border: Border.all(color: Colors.white, width: 2.5),
+                                boxShadow: [
+                                  BoxShadow(
+                                    color: Colors.black.withValues(alpha: 0.18),
+                                    blurRadius: 10,
+                                    offset: const Offset(0, 4),
+                                  ),
+                                ],
+                              ),
+                              child: ClipOval(
+                                child: Image.memory(appIcon, fit: BoxFit.cover),
                               ),
                             ),
-                            const SizedBox(height: 3),
-                            Text(
-                              '1,000 steps = $_minutesPer1k min of screen time',
-                              style: const TextStyle(
-                                fontSize: 13,
-                                color: Color(0xFF757575),
-                              ),
-                            ),
-                          ],
+                          ),
+                      ],
+                    ),
+                    const SizedBox(height: 18),
+
+                    // ── Mascot Streak / Status Pill ──────────────────────────
+                    Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 5),
+                      decoration: BoxDecoration(
+                        color: _streakDays >= 3
+                            ? const Color(0xFFF59E0B).withValues(alpha: 0.15)
+                            : const Color(0xFF10B981).withValues(alpha: 0.12),
+                        borderRadius: BorderRadius.circular(20),
+                        border: Border.all(
+                          color: _streakDays >= 3
+                              ? const Color(0xFFF59E0B).withValues(alpha: 0.35)
+                              : const Color(0xFF10B981).withValues(alpha: 0.25),
                         ),
                       ),
-                    ],
-                  ),
-
-                  const Spacer(flex: 3),
-
-                  // ── Go home button ────────────────────────────────────────
-                  // Full-width, neutral — matches Android system dialog style.
-                  SizedBox(
-                    width: double.infinity,
-                    child: FilledButton(
-                      style: FilledButton.styleFrom(
-                        backgroundColor: const Color(0xFF1A1A1A),
-                        foregroundColor: Colors.white,
-                        padding: const EdgeInsets.symmetric(vertical: 16),
-                        shape: RoundedRectangleBorder(
-                          borderRadius: BorderRadius.circular(14),
-                        ),
-                        elevation: 0,
-                      ),
-                      onPressed: _goHome,
-                      child: const Text(
-                        'Go Back',
+                      child: Text(
+                        _streakDays >= 3
+                            ? '🔥 $_companionName · ${StreakTier.fromStreak(_streakDays).title.split(' ')[0]} Streak'
+                            : '🌱 $_companionName · Focus Guardian',
                         style: TextStyle(
-                          fontSize: 16,
-                          fontWeight: FontWeight.w600,
-                          letterSpacing: 0.2,
+                          fontSize: 12,
+                          fontWeight: FontWeight.bold,
+                          color: _streakDays >= 3 ? const Color(0xFFD97706) : const Color(0xFF047857),
                         ),
                       ),
                     ),
-                  ),
-                  const SizedBox(height: 16),
-                ],
+                    const SizedBox(height: 10),
+
+                    // ── Headline ──────────────────────────────────────────────
+                    Text(
+                      appName,
+                      style: const TextStyle(
+                        fontSize: 24,
+                        fontWeight: FontWeight.w900,
+                        color: Color(0xFF0F172A),
+                        letterSpacing: -0.5,
+                      ),
+                    ),
+                    const SizedBox(height: 4),
+                    const Text(
+                      "Daily screen time limit reached",
+                      textAlign: TextAlign.center,
+                      style: TextStyle(
+                        fontSize: 13.5,
+                        color: Color(0xFF64748B),
+                        fontWeight: FontWeight.w500,
+                      ),
+                    ),
+
+                    const SizedBox(height: 16),
+
+                    // ── Pippy Guidance Glass Card ─────────────────────────────
+                    PuffyGlassContainer(
+                      borderRadius: 22,
+                      tintColor: _aura.midColor,
+                      tintAlpha: 0.65,
+                      padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 14),
+                      child: Column(
+                        children: [
+                          Text(
+                            _getBlockerDialogue(appName),
+                            textAlign: TextAlign.center,
+                            style: const TextStyle(
+                              fontSize: 13,
+                              fontWeight: FontWeight.w600,
+                              color: Color(0xFF1E293B),
+                              height: 1.35,
+                            ),
+                          ),
+                          const SizedBox(height: 8),
+                          Row(
+                            mainAxisAlignment: MainAxisAlignment.center,
+                            children: [
+                              const Icon(Icons.directions_walk_rounded, size: 16, color: Color(0xFF059669)),
+                              const SizedBox(width: 6),
+                              Text(
+                                '1,000 steps = $_minutesPer1k min screen time',
+                                style: const TextStyle(
+                                  fontSize: 12,
+                                  fontWeight: FontWeight.bold,
+                                  color: Color(0xFF059669),
+                                ),
+                              ),
+                            ],
+                          ),
+                        ],
+                      ),
+                    ),
+
+                    const Spacer(flex: 2),
+
+                    // ── Earn Extra Time in Fravo Button ────────────────────────
+                    SizedBox(
+                      width: double.infinity,
+                      height: 54,
+                      child: PuffyGlassPillButton(
+                        label: 'Earn Screen Time in Fravo 🚀',
+                        icon: Icons.bolt_rounded,
+                        gradient: GlassPalette.mint,
+                        onPressed: _openFravo,
+                      ),
+                    ),
+                    const SizedBox(height: 12),
+
+                    // ── Go back button ────────────────────────────────────────
+                    SizedBox(
+                      width: double.infinity,
+                      height: 48,
+                      child: FilledButton(
+                        style: FilledButton.styleFrom(
+                          backgroundColor: const Color(0xFF0F172A),
+                          foregroundColor: Colors.white,
+                          shape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(16),
+                          ),
+                          elevation: 0,
+                        ),
+                        onPressed: _goHome,
+                        child: const Text(
+                          'Go Back',
+                          style: TextStyle(
+                            fontSize: 15,
+                            fontWeight: FontWeight.bold,
+                            letterSpacing: 0.2,
+                          ),
+                        ),
+                      ),
+                    ),
+                    const SizedBox(height: 8),
+                  ],
+                ),
               ),
             ),
           ),

@@ -38,7 +38,6 @@ class _FravoDashboardState extends State<FravoDashboard>
 
   String? _statusMessage;
   Timer? _usageTimer;
-  Timer? _countdownTimer;
 
   final ValueNotifier<int> _secondsRemainingNotifier = ValueNotifier<int>(0);
   int _localRemainingSeconds = 0;
@@ -97,7 +96,6 @@ class _FravoDashboardState extends State<FravoDashboard>
     WidgetsBinding.instance.addPostFrameCallback((_) async {
       await _refresh();
       _startUsageTimer();
-      _startCountdown();
       _checkFirstWalkWelcome();
     });
   }
@@ -174,7 +172,6 @@ class _FravoDashboardState extends State<FravoDashboard>
   void dispose() {
     WidgetsBinding.instance.removeObserver(this);
     _usageTimer?.cancel();
-    _countdownTimer?.cancel();
     _secondsRemainingNotifier.dispose();
     super.dispose();
   }
@@ -184,13 +181,10 @@ class _FravoDashboardState extends State<FravoDashboard>
     if (state == AppLifecycleState.resumed) {
       _pullUsageAndRefresh();
       _startUsageTimer();
-      _startCountdown();
     } else if (state == AppLifecycleState.paused ||
         state == AppLifecycleState.detached) {
       _usageTimer?.cancel();
       _usageTimer = null;
-      _countdownTimer?.cancel();
-      _countdownTimer = null;
     }
   }
 
@@ -218,28 +212,6 @@ class _FravoDashboardState extends State<FravoDashboard>
         _localRemainingSeconds = newRemaining;
       });
     }
-
-    _startCountdown();
-  }
-
-  void _startCountdown() {
-    if (_countdownTimer != null && _countdownTimer!.isActive) return;
-    if (_secondsRemainingNotifier.value <= 0) return;
-
-    _countdownTimer = Timer.periodic(const Duration(seconds: 1), (_) {
-      if (!mounted) {
-        _countdownTimer?.cancel();
-        _countdownTimer = null;
-        return;
-      }
-      if (_secondsRemainingNotifier.value > 0) {
-        _secondsRemainingNotifier.value--;
-      } else {
-        _countdownTimer?.cancel();
-        _countdownTimer = null;
-        _pullUsageAndRefresh();
-      }
-    });
   }
 
   void _startUsageTimer() {
