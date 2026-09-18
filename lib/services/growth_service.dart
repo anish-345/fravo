@@ -212,22 +212,6 @@ class GrowthService extends ChangeNotifier {
     var cleaned = inputCode.trim().toUpperCase().replaceAll(' ', '');
     if (cleaned.isEmpty) return false;
 
-    // Hackathon Judge & VIP Promo Codes: SHIPATON2026, DEVPOST, REVENUECAT
-    if (cleaned == 'SHIPATON2026' || cleaned == 'DEVPOST' || cleaned == 'REVENUECAT' || cleaned == 'FRAVO-PRO') {
-      try {
-        await RevenueCatService.instance.activate7DayReferralTrial();
-        final box = Hive.box(_boxName);
-        await box.put(_hasRedeemedReferralKey, true);
-        await AnalyticsService.instance.logEvent('judge_promo_redeemed', parameters: {'code': cleaned, 'duration': '7_days'});
-        await OneSignalService.instance.setUserTag('referral_reward', '7_days_premium');
-        await OneSignalService.instance.setUserTag('is_premium', 'true');
-        notifyListeners();
-        return true;
-      } catch (e) {
-        if (kDebugMode) print('[GrowthService] Judge promo redemption error: $e');
-        return true;
-      }
-    }
 
     // Normalize: If user entered 4-letter suffix without 'FRAVO-', prepend it
     if (!cleaned.startsWith('FRAVO-') && cleaned.length <= 6) {

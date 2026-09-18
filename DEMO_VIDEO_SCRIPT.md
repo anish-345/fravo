@@ -40,8 +40,8 @@
 - **Visual**: Beautiful glassmorphic RevenueCat paywall appears:
   - Highlights: 2x Reward Rate (1k steps = 60 mins), Unlimited App Blocking, Zero Ads.
 - **Voiceover**:
-  > *"Fravo's monetization is powered by RevenueCat. Users can subscribe monthly, annually, or earn free 7-day Pro passes by inviting friends through our viral referral loop. For Shipaton judges, entering code SHIPATON2026 unlocks instant 7-day Pro access!"*
-- **Visual**: Type `SHIPATON2026` in the referral card -> Green confirmation toast appears -> Pro badge activates!
+   > *"Fravo's monetization is powered by RevenueCat. Users can subscribe monthly, annually, or earn free 7-day Pro passes by entering an invite code through our viral referral loop. For judges, entering our invite code unlocks instant 7-day Pro access!"*
+ - **Visual**: Type the invite code in the referral card -> Green confirmation toast appears -> Pro badge activates!
 
 ---
 

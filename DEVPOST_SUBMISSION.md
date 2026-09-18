@@ -7,7 +7,7 @@
 - **Repository**: Open Source (MIT Licensed)
   - Flutter Mobile App: [https://github.com/anish-345/fravo](https://github.com/anish-345/fravo)
   - AI Backend Engine: [https://github.com/anish-345/fravoau](https://github.com/anish-345/fravoau)
-- **Judge VIP Promo Code**: Enter `SHIPATON2026` or `DEVPOST` in the Referral / Promo card to instantly unlock 7 Days of Free Fravo Premium!
+- **Judge Access Code**: Provide your personal referral code (e.g. `FRAVO-XXXXX`) in the Referral / Promo card to instantly unlock 7 Days of Free Fravo Premium directly on the live Google Play Store version!
 
 ---
 
@@ -92,8 +92,8 @@ Fravo introduces a simple, dopamine-aligned habit loop: **1,000 steps walked = 3
 ---
 
 ## Judge Testing Credentials & Instructions
-1. Download the APK or clone the open-source repository.
-2. Launch the app and complete the quick 3-step onboarding.
-3. On the Home Dashboard, scroll down to the **Invite Friends / Redeem Code** card.
-4. Enter `SHIPATON2026` or `DEVPOST` and tap **Redeem Code**.
-5. Your account is immediately upgraded to **Fravo Pro (7-Day Trial)** with unlimited app blocks and 2x reward rate!
+1. Download **Fravo** directly from the Google Play Store: [https://play.google.com/store/apps/details?id=avionti.fravo](https://play.google.com/store/apps/details?id=avionti.fravo) (or clone and run the open-source repo).
+2. Complete the quick 3-step onboarding.
+3. On the Home Dashboard, scroll down and tap the **Invite Friends / Redeem Code** card.
+4. Enter the creator referral code `[INSERT_YOUR_CODE_HERE, e.g. FRAVO-XXXXX]` and tap **Claim 7 Days Pro**.
+5. Your account immediately unlocks **Fravo Pro (7-Day Trial)** with unlimited app blocking, 2x reward rate, and zero ads!
