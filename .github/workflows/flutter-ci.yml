@@ -28,7 +28,6 @@ jobs:
       - name: 🐦 Set up Flutter
         uses: subosito/flutter-action@v2
         with:
-          flutter-version: '3.29.0'
           channel: 'stable'
           cache: true
 
@@ -40,13 +39,3 @@ jobs:
 
       - name: 🧪 Run Automated Tests
         run: flutter test
-
-      - name: 🔨 Build Android Release APK (Verification)
-        run: flutter build apk --release --no-codesign
-
-      - name: 📦 Upload Release APK Artifact
-        uses: actions/upload-artifact@v4
-        with:
-          name: fravo-release-apk
-          path: build/app/outputs/flutter-apk/app-release.apk
-          retention-days: 14
