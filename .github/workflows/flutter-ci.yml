@@ -1,0 +1,52 @@
+name: Fravo Flutter CI & Quality Check
+
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+    branches:
+      - main
+  workflow_dispatch:
+
+jobs:
+  analyze-and-test:
+    name: Flutter Analyze & Unit Tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+
+    steps:
+      - name: 📥 Checkout Repository
+        uses: actions/checkout@v4
+
+      - name: ☕ Set up Java 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: 'temurin'
+          java-version: '17'
+
+      - name: 🐦 Set up Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          flutter-version: '3.29.0'
+          channel: 'stable'
+          cache: true
+
+      - name: 📦 Install Flutter Dependencies
+        run: flutter pub get
+
+      - name: 🔍 Verify Code Formatting & Static Analysis
+        run: flutter analyze --no-fatal-infos
+
+      - name: 🧪 Run Automated Tests
+        run: flutter test
+
+      - name: 🔨 Build Android Release APK (Verification)
+        run: flutter build apk --release --no-codesign
+
+      - name: 📦 Upload Release APK Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: fravo-release-apk
+          path: build/app/outputs/flutter-apk/app-release.apk
+          retention-days: 14
