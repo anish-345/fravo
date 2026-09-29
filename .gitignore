@@ -91,3 +91,9 @@ tools/
 
 # Local Netlify folder
 .netlify
+
+# Standalone backend repository (hosted separately at anish-345/fravoau)
+notification-ai-backend/
+.thumb_build/
+_tmp_bin/
+
