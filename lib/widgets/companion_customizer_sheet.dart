@@ -248,7 +248,7 @@ class _CompanionCustomizerSheetState extends State<CompanionCustomizerSheet> {
                                 _companionService.setUserName(_userNickController.text);
                                 ScaffoldMessenger.of(context).showSnackBar(
                                   SnackBar(
-                                    content: Text('👋 Pippy will call you "${_userNickController.text}"!'),
+                                    content: Text('👋 ${_companionService.name} will call you "${_userNickController.text}"!'),
                                     backgroundColor: const Color(0xFF10B981),
                                   ),
                                 );

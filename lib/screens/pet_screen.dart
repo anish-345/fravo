@@ -19,7 +19,10 @@ class PetScreen extends StatefulWidget {
 }
 
 class _PetScreenState extends State<PetScreen>
-    with SingleTickerProviderStateMixin {
+    with SingleTickerProviderStateMixin, AutomaticKeepAliveClientMixin {
+  @override
+  bool get wantKeepAlive => true;
+
   final _companionService = CompanionService.instance;
   final _revenueCat = RevenueCatService.instance;
   final _timeBank = TimeBankService.instance;
@@ -46,14 +49,97 @@ class _PetScreenState extends State<PetScreen>
   // Selected Category tab (0: Auras, 1: Wardrobe, 2: Voices, 3: Profile)
   int _selectedCategoryIndex = 0;
 
-  static const _petPhrases = [
-    'Pippy purrs with joy! (Bonding XP +5) 💖',
-    'Pippy loves walking with you! 🥰',
+  List<String> get _petPhrases => [
+    '${_companionService.name} purrs with joy! (Bonding XP +5) 💖',
+    '${_companionService.name} loves walking with you! 🥰',
     'Yay! Moving together makes us stronger! ⚡',
-    'Pippy gives you a happy high-paw! 🐾',
+    '${_companionService.name} gives you a happy high-paw! 🐾',
     'Warm hugs and peaceful focus! 🌸',
-    'You are Pippy\'s favorite human! ✨',
+    'You are ${_companionService.name}\'s favorite human! ✨',
   ];
+
+  Future<void> _showRenameDialog() async {
+    final controller = TextEditingController(text: _companionService.name);
+    final newName = await showDialog<String>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(24)),
+        title: Row(
+          children: [
+            Container(
+              padding: const EdgeInsets.all(6),
+              decoration: BoxDecoration(
+                color: const Color(0xFFDCFCE7),
+                borderRadius: BorderRadius.circular(10),
+              ),
+              child: const Icon(Icons.edit_rounded, color: Color(0xFF10B981), size: 20),
+            ),
+            const SizedBox(width: 10),
+            const Text(
+              'Rename Companion',
+              style: TextStyle(fontWeight: FontWeight.bold, fontSize: 17),
+            ),
+          ],
+        ),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            const Text(
+              'Give your walking companion a personal name:',
+              style: TextStyle(fontSize: 13, color: Color(0xFF64748B)),
+            ),
+            const SizedBox(height: 12),
+            TextField(
+              controller: controller,
+              autofocus: true,
+              textCapitalization: TextCapitalization.words,
+              decoration: InputDecoration(
+                hintText: 'e.g. Fravo, Pippy, Sparky',
+                filled: true,
+                fillColor: const Color(0xFFF8FAFC),
+                prefixIcon: const Icon(Icons.pets_rounded, color: Color(0xFF10B981)),
+                border: OutlineInputBorder(
+                  borderRadius: BorderRadius.circular(14),
+                  borderSide: const BorderSide(color: Color(0xFFE2E8F0)),
+                ),
+                focusedBorder: OutlineInputBorder(
+                  borderRadius: BorderRadius.circular(14),
+                  borderSide: const BorderSide(color: Color(0xFF10B981), width: 2),
+                ),
+              ),
+            ),
+          ],
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx),
+            child: const Text('Cancel'),
+          ),
+          ElevatedButton(
+            style: ElevatedButton.styleFrom(
+              backgroundColor: const Color(0xFF10B981),
+              foregroundColor: Colors.white,
+              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+            ),
+            onPressed: () {
+              final text = controller.text.trim();
+              if (text.isNotEmpty) {
+                Navigator.pop(ctx, text);
+              }
+            },
+            child: const Text('Save Name'),
+          ),
+        ],
+      ),
+    );
+
+    if (newName != null && newName.isNotEmpty) {
+      await _companionService.setName(newName);
+      _nameController.text = newName;
+      if (mounted) setState(() {});
+    }
+  }
 
   void _syncPreviewFromService() {
     // Only called when premium status changes — reverts locked previews
@@ -152,6 +238,7 @@ class _PetScreenState extends State<PetScreen>
 
   @override
   Widget build(BuildContext context) {
+    super.build(context);
     return ValueListenableBuilder<bool>(
       valueListenable: _revenueCat.isPremiumNotifier,
       builder: (context, isPremium, _) {
@@ -192,7 +279,7 @@ class _PetScreenState extends State<PetScreen>
                 title: Row(
                   mainAxisSize: MainAxisSize.min,
                   children: [
-                    const Text('Pippy Sanctuary'),
+                    Text('${_companionService.name} Sanctuary'),
                     const SizedBox(width: 8),
                     Container(
                       padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
@@ -344,14 +431,38 @@ class _PetScreenState extends State<PetScreen>
                                 ),
                               ),
                               const SizedBox(height: 12),
-                              Text(
-                                _companionService.name,
-                                style: const TextStyle(
-                                  fontSize: 22,
-                                  fontWeight: FontWeight.w900,
-                                  color: Color(0xFF1F2937),
-                                  letterSpacing: -0.3,
-                                ),
+                              Row(
+                                mainAxisAlignment: MainAxisAlignment.center,
+                                children: [
+                                  Text(
+                                    _companionService.name,
+                                    style: const TextStyle(
+                                      fontSize: 22,
+                                      fontWeight: FontWeight.w900,
+                                      color: Color(0xFF1F2937),
+                                      letterSpacing: -0.3,
+                                      fontFamily: 'Outfit',
+                                    ),
+                                  ),
+                                  const SizedBox(width: 8),
+                                  GestureDetector(
+                                    onTap: _showRenameDialog,
+                                    child: Container(
+                                      padding: const EdgeInsets.all(5),
+                                      decoration: BoxDecoration(
+                                        color: Colors.white.withValues(alpha: 0.9),
+                                        shape: BoxShape.circle,
+                                        boxShadow: [
+                                          BoxShadow(
+                                            color: Colors.black.withValues(alpha: 0.06),
+                                            blurRadius: 6,
+                                          ),
+                                        ],
+                                      ),
+                                      child: const Icon(Icons.edit_rounded, size: 14, color: Color(0xFF10B981)),
+                                    ),
+                                  ),
+                                ],
                               ),
                               const SizedBox(height: 3),
                               Row(
@@ -360,7 +471,7 @@ class _PetScreenState extends State<PetScreen>
                                   Text(
                                     _petCount > 0
                                         ? 'Petted $_petCount times with love! 💖'
-                                        : 'Tap Pippy to pet & share love! 💖',
+                                        : 'Tap ${_companionService.name} to pet & share love! 💖',
                                     style: const TextStyle(
                                       fontSize: 12.5,
                                       color: Color(0xFF065F46),
@@ -842,7 +953,7 @@ class _PetScreenState extends State<PetScreen>
               TextField(
                 controller: _userNickController,
                 decoration: InputDecoration(
-                  labelText: 'What Pippy calls you',
+                  labelText: 'What ${_companionService.name} calls you',
                   hintText: 'e.g., Alex, Champion, Speedy',
                   prefixIcon: const Icon(Icons.person_rounded, color: Color(0xFF10B981)),
                   filled: true,
@@ -864,7 +975,7 @@ class _PetScreenState extends State<PetScreen>
                 controller: _nameController,
                 decoration: InputDecoration(
                   labelText: 'Companion Name',
-                  hintText: 'e.g., Pippy, Zen, Sparky',
+                  hintText: 'e.g., Fravo, Sparky, Zen',
                   prefixIcon: const Icon(Icons.pets_rounded, color: Color(0xFF10B981)),
                   filled: true,
                   fillColor: Colors.white,
@@ -906,7 +1017,7 @@ class _PetScreenState extends State<PetScreen>
                   style: TextStyle(fontSize: 14, fontWeight: FontWeight.bold, color: Color(0xFF1F2937)),
                 ),
                 subtitle: Text(
-                  streakDays >= 3 ? '${streakTier.title} Active' : 'Walk daily to evolve Pippy',
+                  streakDays >= 3 ? '${streakTier.title} Active' : 'Walk daily to evolve ${_companionService.name}',
                   style: const TextStyle(fontSize: 11.5, color: Color(0xFFD97706)),
                 ),
                 children: [

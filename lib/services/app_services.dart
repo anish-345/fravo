@@ -60,8 +60,10 @@ class AppServices {
     // 4. Initialize OneSignal (Push Notifications)
     await OneSignalService.instance.init(appId: oneSignalAppId);
 
-    // 5. Initialize AdMob (Google Mobile Ads)
-    await AdMobService.instance.init();
+    // 5. Initialize AdMob (Google Mobile Ads) — with UMP consent gate.
+    // Per Google policy, user consent must be collected before initializing ads
+    // for users in EEA/UK (GDPR). The UMP SDK handles this automatically.
+    await AdMobService.instance.initWithConsent();
 
     // 6. Sync full user profile & initial survey answers across Analytics & OneSignal
     await syncFullUserProfile();
@@ -93,13 +95,17 @@ class AppServices {
       );
       await AnalyticsService.instance.setUserProperties(isPremium: isPremium);
 
+      // Capture current timestamp once to prevent drift across calculations
+      final now = DateTime.now();
+      final nowMs = now.millisecondsSinceEpoch;
+
       // Calculate days since installation
       final box = Hive.box('time_bank');
-      final firstLaunchMs = (box.get('first_launch_timestamp') as int?) ?? DateTime.now().millisecondsSinceEpoch;
+      final firstLaunchMs = (box.get('first_launch_timestamp') as int?) ?? nowMs;
       if (!box.containsKey('first_launch_timestamp')) {
         await box.put('first_launch_timestamp', firstLaunchMs);
       }
-      final daysInstalled = (DateTime.now().difference(DateTime.fromMillisecondsSinceEpoch(firstLaunchMs)).inDays).clamp(0, 9999);
+      final daysInstalled = (now.difference(DateTime.fromMillisecondsSinceEpoch(firstLaunchMs)).inDays).clamp(0, 9999);
 
       // 2. Batch Sync to OneSignal User Tags for Segmentation
       final permissions = await BlockerService.instance.checkPermissionsStatus();
@@ -109,9 +115,9 @@ class AppServices {
       });
 
       final streak = timeBank.currentStreakDays;
-      final lastActiveMs = (box.get('last_active_timestamp') as int?) ?? DateTime.now().millisecondsSinceEpoch;
-      final daysInactive = (DateTime.now().difference(DateTime.fromMillisecondsSinceEpoch(lastActiveMs)).inDays).clamp(0, 999);
-      await box.put('last_active_timestamp', DateTime.now().millisecondsSinceEpoch);
+      final lastActiveMs = (box.get('last_active_timestamp') as int?) ?? nowMs;
+      final daysInactive = (now.difference(DateTime.fromMillisecondsSinceEpoch(lastActiveMs)).inDays).clamp(0, 999);
+      await box.put('last_active_timestamp', nowMs);
 
       String risk = 'low';
       if (daysInactive >= 5) {
@@ -121,6 +127,9 @@ class AppServices {
       } else if (daysInactive == 1) {
         risk = 'medium';
       }
+
+      final paywallAbandonCount = (box.get('paywall_abandon_count', defaultValue: 0) as int).toString();
+      final hasHighAbandonIntent = int.tryParse(paywallAbandonCount) != null && int.parse(paywallAbandonCount) > 0;
 
       await OneSignalService.instance.setUserTags({
         'my_referral_code': GrowthService.instance.referralCode,
@@ -137,9 +146,9 @@ class AppServices {
         'current_streak': streak.toString(),
         'days_inactive': daysInactive.toString(),
         'churn_risk': risk,
-        'paywall_abandon_count': '0',
+        'paywall_abandon_count': paywallAbandonCount,
         'user_profile': '${isPremium ? "vip" : "free"}|apps:${blockedApps.length}|goal:${goal.toLowerCase().replaceAll(RegExp(r'[^a-z0-9]'), '')}|step:$stepGoal',
-        'behavior_state': 'stage:active|churn:$risk|pw_ab:0|pw_intent:low|perm:${missing.isEmpty ? "ok" : "missing"}',
+        'behavior_state': 'stage:active|churn:$risk|pw_ab:$paywallAbandonCount|pw_intent:${hasHighAbandonIntent ? "high" : "low"}|perm:${missing.isEmpty ? "ok" : "missing"}',
       });
 
       if (kDebugMode) {

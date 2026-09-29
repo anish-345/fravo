@@ -233,8 +233,19 @@ class TimeHeroCard extends StatelessWidget {
 
   Widget _buildTimerDisplay(int currentSec) {
     final isBlocked = remaining <= 0 || currentSec <= 0;
-    // Show MM:SS only if there are sub-minute remainder seconds under 5 minutes
-    final isMMSS = !isBlocked && currentSec < 300 && (currentSec % 60 != 0);
+    // Consistently show MM:SS format whenever remaining time is under 5 minutes (> 0 and < 300 sec)
+    final isMMSS = !isBlocked && currentSec < 300;
+
+    final String timeText;
+    if (isBlocked) {
+      timeText = '0';
+    } else if (isMMSS) {
+      timeText = _formatMMSS(currentSec);
+    } else {
+      // For 5+ minutes, show whole minutes (derived consistently from currentSec)
+      final displayMins = (currentSec / 60).ceil();
+      timeText = '$displayMins';
+    }
 
     return Column(
       mainAxisSize: MainAxisSize.min,
@@ -242,13 +253,9 @@ class TimeHeroCard extends StatelessWidget {
         FittedBox(
           fit: BoxFit.scaleDown,
           child: Text(
-            isBlocked
-                ? '0'
-                : isMMSS
-                    ? _formatMMSS(currentSec)
-                    : '$remaining',
+            timeText,
             style: TextStyle(
-              fontSize: isMMSS ? 34 : 44,
+              fontSize: isMMSS ? 36 : 44,
               fontWeight: FontWeight.w900,
               height: 1,
               letterSpacing: -1.2,
@@ -274,11 +281,11 @@ class TimeHeroCard extends StatelessWidget {
     );
   }
 
-  /// Formats seconds as MM:SS (e.g. 263 → "4:23").
+  /// Formats seconds as MM:SS (e.g. 180 → "3:00", 179 → "2:59", 45 → "0:45").
   static String _formatMMSS(int totalSeconds) {
     final m = totalSeconds ~/ 60;
     final s = totalSeconds % 60;
-    return '$m:${s.toString().padLeft(2, '0')}';  
+    return '$m:${s.toString().padLeft(2, '0')}';
   }
 }
 
@@ -639,12 +646,13 @@ class _EmergencyPassBannerState extends State<EmergencyPassBanner> {
   }
 
   void _update() {
+    if (!mounted) return;
     final r = widget.expiry.difference(DateTime.now());
     final wasPositive = _remaining.inSeconds > 0;
-    if (mounted) setState(() => _remaining = r.isNegative ? Duration.zero : r);
+    setState(() => _remaining = r.isNegative ? Duration.zero : r);
     // When the pass just expired, fire the callback so blocking is
     // re-evaluated immediately without waiting for the next 5s poll.
-    if (wasPositive && _remaining.inSeconds <= 0) {
+    if (wasPositive && _remaining.inSeconds <= 0 && mounted) {
       widget.onExpired?.call();
     }
   }
@@ -864,14 +872,30 @@ class LivePulseDot extends StatefulWidget {
 }
 
 class _LivePulseDotState extends State<LivePulseDot>
-    with SingleTickerProviderStateMixin {
+    with SingleTickerProviderStateMixin, WidgetsBindingObserver {
   late final AnimationController _controller = AnimationController(
     vsync: this,
     duration: const Duration(milliseconds: 1400),
   )..repeat(reverse: true);
 
   @override
+  void initState() {
+    super.initState();
+    WidgetsBinding.instance.addObserver(this);
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.resumed) {
+      if (!_controller.isAnimating) _controller.repeat(reverse: true);
+    } else {
+      if (_controller.isAnimating) _controller.stop();
+    }
+  }
+
+  @override
   void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
     _controller.dispose();
     super.dispose();
   }

@@ -47,6 +47,14 @@ class ZoBlockScreenRunner {
   /// 1. Initializes the Flutter binding
   /// 2. Listens for `onAppBlocked` events from the native service
   /// 3. Calls [builder] with a [BlockScreenContext] containing the blocked app info
+  static DateTime? _lastDismissTime;
+
+  /// Signals that the block screen is being dismissed or transitioning to the parent app.
+  /// Ignores transient OS accessibility events during the window transition.
+  static void notifyDismissing() {
+    _lastDismissTime = DateTime.now();
+  }
+
   /// 4. Renders the returned widget as a fullscreen overlay
   ///
   /// Updates to the same blocked package (e.g. icon arriving after the overlay
@@ -67,6 +75,12 @@ class ZoBlockScreenRunner {
 
     _channel.setMethodCallHandler((call) async {
       if (call.method == 'onAppBlocked') {
+        if (_lastDismissTime != null &&
+            DateTime.now().difference(_lastDismissTime!).inMilliseconds < 1500) {
+          // Ignore transient window transition bounce while Fravo or Home is coming to foreground
+          return;
+        }
+
         final args = Map<String, dynamic>.from(call.arguments as Map);
         final packageName = args['packageName'] as String;
         final appName = args['appName'] as String?;
@@ -87,9 +101,11 @@ class ZoBlockScreenRunner {
           appName: appName,
           appIcon: appIcon,
           onDismiss: () {
+            notifyDismissing();
             _channel.invokeMethod<void>('dismissBlockScreen');
           },
           onRequestTemporarySessionUnlock: () async {
+            notifyDismissing();
             final result = await _channel.invokeMethod<bool>(
               'temporarySessionUnlock',
             );
@@ -108,11 +124,25 @@ class ZoBlockScreenRunner {
             ),
           );
         } else {
-          // Subsequent event for the same (or new) package — update reactively.
-          // This handles the two-phase pattern:
-          //   phase 1: overlay shown immediately with null icon/name
-          //   phase 2: icon/name arrives from background thread, widget updates in-place
-          contextNotifier.value = newContext;
+          // If the package is the same, merge so we never overwrite an already resolved
+          // appName or appIcon with null (which happens during Android Recents task switching).
+          if (current.packageName == newContext.packageName) {
+            if ((newContext.appName == null || newContext.appName == current.appName) &&
+                (newContext.appIcon == null || newContext.appIcon == current.appIcon)) {
+              // No new information — skip redundant rebuild.
+              return;
+            }
+            contextNotifier.value = BlockScreenContext(
+              packageName: newContext.packageName,
+              appName: newContext.appName ?? current.appName,
+              appIcon: newContext.appIcon ?? current.appIcon,
+              onDismiss: newContext.onDismiss,
+              onRequestTemporarySessionUnlock:
+                  newContext.onRequestTemporarySessionUnlock,
+            );
+          } else {
+            contextNotifier.value = newContext;
+          }
         }
       }
     });

@@ -132,7 +132,7 @@ class _ReferralRewardCardState extends State<ReferralRewardCard> {
               ),
               const SizedBox(height: 2),
               const Text(
-                'Your friend defeats doomscrolling. You unlock 7 Days Pro + Pippy\'s wardrobe. Win-win! 🎉',
+                'Your friend defeats doomscrolling. You unlock 7 Days Pro + Fravo\'s wardrobe. Win-win! 🎉',
                 style: TextStyle(color: Color(0xFF64748B), fontSize: 11.5, height: 1.4),
               ),
 

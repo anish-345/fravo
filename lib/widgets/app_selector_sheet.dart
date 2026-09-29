@@ -6,8 +6,10 @@ import 'package:zo_app_blocker/zo_app_blocker.dart';
 import '../screens/paywall_screen.dart';
 import '../services/admob_service.dart';
 import '../services/blocker_service.dart';
+import '../services/companion_service.dart';
 import '../services/revenuecat_service.dart';
 import '../services/time_bank.dart';
+import 'pippy_avatar_widget.dart';
 
 // ── App Icon Widget ──────────────────────────────────────────────────────────
 
@@ -174,7 +176,14 @@ class _AppSelectorSheetState extends State<AppSelectorSheet> {
   String? _errorMessage;
   String _selectedCategory = 'All';
 
-  static const _categories = ['All', 'Social', 'Video', 'Games', 'Chat', 'Browser'];
+  static const _categories = [
+    'All',
+    'Social',
+    'Video',
+    'Games',
+    'Chat',
+    'Browser',
+  ];
 
   /// Local mutable copy of selected packages (pkg → display name).
   late Map<String, String> _selectedApps;
@@ -208,34 +217,8 @@ class _AppSelectorSheetState extends State<AppSelectorSheet> {
     });
 
     try {
-      final rawApps = await BlockerService.instance.getInstalledApps(
+      final apps = await BlockerService.instance.getSelectableApps(
         forceRefresh: forceRefresh,
-      );
-      final List<AppInfo> apps = [];
-
-      for (final raw in rawApps) {
-        try {
-          final app = AppInfo.fromMap(raw);
-          if (app.packageName.isNotEmpty && app.appName.isNotEmpty) {
-            apps.add(app);
-          }
-        } catch (_) {}
-      }
-
-      final existingPackages = apps.map((a) => a.packageName).toSet();
-      for (final preset in CommonApps.presets) {
-        if (!existingPackages.contains(preset.packageName)) {
-          apps.add(
-            AppInfo(
-              appName: preset.name,
-              packageName: preset.packageName,
-            ),
-          );
-        }
-      }
-
-      apps.sort(
-        (a, b) => a.appName.toLowerCase().compareTo(b.appName.toLowerCase()),
       );
 
       if (mounted) {
@@ -297,44 +280,79 @@ class _AppSelectorSheetState extends State<AppSelectorSheet> {
   }
 
   void _showUpgradePaywallDialog() {
+    final companion = CompanionService.instance;
     showDialog(
       context: context,
       builder: (ctx) => AlertDialog(
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(24)),
-        title: const Row(
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(28)),
+        contentPadding: const EdgeInsets.fromLTRB(22, 22, 22, 16),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
           children: [
-            Icon(Icons.workspace_premium_rounded, color: Color(0xFFF59E0B), size: 24),
-            SizedBox(width: 8),
+            PippyAvatarWidget(
+              size: 60,
+              mood: PippyMood.celebrate,
+              aura: companion.aura,
+              accessory: companion.accessory,
+              streakDays: companion.currentStreak,
+            ),
+            const SizedBox(height: 12),
+            const Text(
+              'Unlock Unlimited Apps with Pro 🚀',
+              style: TextStyle(
+                fontWeight: FontWeight.w900,
+                fontSize: 16.5,
+                fontFamily: 'Outfit',
+                color: Color(0xFF1E293B),
+              ),
+              textAlign: TextAlign.center,
+            ),
+            const SizedBox(height: 8),
             Text(
-              '1 App Blocking Limit',
-              style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16),
+              companion.getAppLimitUpgradeDialogue(),
+              textAlign: TextAlign.center,
+              style: const TextStyle(
+                fontSize: 12.5,
+                color: Color(0xFF475569),
+                height: 1.4,
+              ),
             ),
           ],
         ),
-        content: const Text(
-          'Free users can block 1 app at a time.\n\nUpgrade to Fravo Premium for unlimited app blocking, custom step rates, and priority notifications!',
-          style: TextStyle(fontSize: 13, color: Color(0xFF4B5563), height: 1.4),
-        ),
+        actionsAlignment: MainAxisAlignment.spaceBetween,
         actions: [
           TextButton(
             onPressed: () => Navigator.pop(ctx),
-            child: const Text('Got it'),
+            child: const Text(
+              'Got it',
+              style: TextStyle(color: Color(0xFF94A3B8)),
+            ),
           ),
-          FilledButton(
+          FilledButton.icon(
             style: FilledButton.styleFrom(
-              backgroundColor: const Color(0xFF3B82F6),
-              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
+              backgroundColor: const Color(0xFF10B981),
+              foregroundColor: Colors.white,
+              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(14),
+              ),
+              elevation: 0,
             ),
             onPressed: () {
               Navigator.pop(ctx);
               Navigator.push(
                 context,
                 MaterialPageRoute(
-                  builder: (_) => const PaywallScreen(source: 'app_limit_dialog'),
+                  builder: (_) =>
+                      const PaywallScreen(source: 'app_limit_dialog'),
                 ),
               );
             },
-            child: const Text('Upgrade to Pro'),
+            icon: const Icon(Icons.star_rounded, size: 18),
+            label: const Text(
+              'See Pro Perks ⭐',
+              style: TextStyle(fontWeight: FontWeight.bold),
+            ),
           ),
         ],
       ),
@@ -346,19 +364,13 @@ class _AppSelectorSheetState extends State<AppSelectorSheet> {
     final originalSet = widget.selectedPackageNames;
 
     // If selection hasn't changed at all, simply dismiss sheet
-    if (newSet.length == originalSet.length && newSet.containsAll(originalSet)) {
+    if (newSet.length == originalSet.length &&
+        newSet.containsAll(originalSet)) {
       Navigator.of(context).pop();
       return;
     }
 
-    // Check if 10-minute cooldown requires watching a rewarded video ad
-    if (AdMobService.instance.shouldRequireAdForAppListChange()) {
-      _showOptInRewardedAdDialog();
-      return;
-    }
-
-    // Within 10-minute window: apply immediately
-    _commitSelection();
+    _showSaveAppListAdConfirmation();
   }
 
   void _commitSelection() {
@@ -366,60 +378,123 @@ class _AppSelectorSheetState extends State<AppSelectorSheet> {
       _selectedApps.keys.toList(),
       Map<String, String>.from(_selectedApps),
     );
-    Navigator.of(context).pop();
   }
 
-  void _showOptInRewardedAdDialog() {
+  /// AdMob Policy: Rewarded ads must be opt-in with explicit disclosure of reward
+  /// before the ad begins. Saving the updated app list requires watching a rewarded ad.
+  void _showSaveAppListAdConfirmation() {
+    final companion = CompanionService.instance;
     showDialog(
       context: context,
       builder: (dialogCtx) => AlertDialog(
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(22)),
-        title: const Row(
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(28)),
+        contentPadding: const EdgeInsets.fromLTRB(22, 22, 22, 16),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
           children: [
-            Icon(Icons.play_circle_fill_rounded, color: Color(0xFF10B981), size: 26),
-            SizedBox(width: 8),
+            PippyAvatarWidget(
+              size: 60,
+              mood: PippyMood.walking,
+              aura: companion.aura,
+              accessory: companion.accessory,
+              streakDays: companion.currentStreak,
+            ),
+            const SizedBox(height: 12),
+            const Text(
+              'Save Blocked Apps 🛡️',
+              style: TextStyle(
+                fontWeight: FontWeight.w900,
+                fontSize: 17,
+                fontFamily: 'Outfit',
+                color: Color(0xFF1E293B),
+              ),
+              textAlign: TextAlign.center,
+            ),
+            const SizedBox(height: 8),
             Text(
-              'Update Blocklist',
-              style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16),
+              'You have selected ${_selectedApps.length} app${_selectedApps.length == 1 ? '' : 's'} to block.',
+              textAlign: TextAlign.center,
+              style: const TextStyle(
+                fontSize: 12.5,
+                color: Color(0xFF475569),
+                height: 1.4,
+              ),
+            ),
+            const SizedBox(height: 12),
+            Container(
+              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+              decoration: BoxDecoration(
+                color: const Color(0xFF10B981).withValues(alpha: 0.10),
+                borderRadius: BorderRadius.circular(10),
+              ),
+              child: const Row(
+                children: [
+                  Icon(
+                    Icons.play_circle_fill_rounded,
+                    color: Color(0xFF047857),
+                    size: 18,
+                  ),
+                  SizedBox(width: 8),
+                  Expanded(
+                    child: Text(
+                      'Watch a short video ad to apply and save your updated blocked apps list.',
+                      style: TextStyle(
+                        fontSize: 11.5,
+                        fontWeight: FontWeight.w600,
+                        color: Color(0xFF047857),
+                      ),
+                    ),
+                  ),
+                ],
+              ),
             ),
           ],
         ),
-        content: const Text(
-          'Watch a short video to update your blocked apps list. Your changes will be saved once the video finishes.',
-          style: TextStyle(fontSize: 13, color: Color(0xFF4B5563), height: 1.4),
-        ),
+        actionsAlignment: MainAxisAlignment.spaceBetween,
         actions: [
           TextButton(
             onPressed: () => Navigator.pop(dialogCtx),
-            child: const Text('Cancel', style: TextStyle(color: Colors.grey)),
+            child: const Text(
+              'Cancel',
+              style: TextStyle(color: Color(0xFF94A3B8)),
+            ),
           ),
           FilledButton.icon(
             style: FilledButton.styleFrom(
               backgroundColor: const Color(0xFF10B981),
-              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+              foregroundColor: Colors.white,
+              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(14),
+              ),
+              elevation: 0,
             ),
             onPressed: () {
               Navigator.pop(dialogCtx);
-              _playRewardedAdAndCommit();
+              _playRewardedAdAndSave();
             },
-            icon: const Icon(Icons.play_arrow_rounded, size: 20),
-            label: const Text('Watch & Save'),
+            icon: const Icon(Icons.play_circle_fill_rounded, size: 18),
+            label: const Text(
+              'Watch & Save ✨',
+              style: TextStyle(fontWeight: FontWeight.bold),
+            ),
           ),
         ],
       ),
     );
   }
 
-  void _playRewardedAdAndCommit() {
-    bool earned = false;
+  void _playRewardedAdAndSave() {
+    bool rewardEarned = false;
     AdMobService.instance.showAppListChangeRewardedAd(
       onRewardEarned: () {
-        earned = true;
+        rewardEarned = true;
         _commitSelection();
         if (mounted) {
+          Navigator.of(context).pop();
           ScaffoldMessenger.of(context).showSnackBar(
             const SnackBar(
-              content: Text('🎉 App list updated successfully!'),
+              content: Text('Blocked apps updated successfully! 🛡️'),
               backgroundColor: Color(0xFF10B981),
               behavior: SnackBarBehavior.floating,
             ),
@@ -427,11 +502,11 @@ class _AppSelectorSheetState extends State<AppSelectorSheet> {
         }
       },
       onAdDismissed: () {
-        if (!earned && mounted) {
+        if (!rewardEarned && mounted) {
           ScaffoldMessenger.of(context).showSnackBar(
             const SnackBar(
-              content: Text('⚠️ Video skipped. App list was not modified.'),
-              backgroundColor: Color(0xFFE11D48),
+              content: Text('Ad was closed early. Changes were not saved.'),
+              backgroundColor: Color(0xFFEF4444),
               behavior: SnackBarBehavior.floating,
             ),
           );
@@ -441,8 +516,10 @@ class _AppSelectorSheetState extends State<AppSelectorSheet> {
         if (mounted) {
           ScaffoldMessenger.of(context).showSnackBar(
             const SnackBar(
-              content: Text('⚠️ Video is not ready yet. Please try again in a moment.'),
-              backgroundColor: Color(0xFFF59E0B),
+              content: Text(
+                'Ad is loading or unavailable. Please check your connection and try again.',
+              ),
+              backgroundColor: Color(0xFFEF4444),
               behavior: SnackBarBehavior.floating,
             ),
           );
@@ -650,9 +727,14 @@ class _AppSelectorSheetState extends State<AppSelectorSheet> {
                   onTap: () => setState(() => _selectedCategory = cat),
                   child: AnimatedContainer(
                     duration: const Duration(milliseconds: 200),
-                    padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 7),
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 14,
+                      vertical: 7,
+                    ),
                     decoration: BoxDecoration(
-                      color: isActive ? const Color(0xFF2D3748) : const Color(0xFFF5F5F7),
+                      color: isActive
+                          ? const Color(0xFF2D3748)
+                          : const Color(0xFFF5F5F7),
                       borderRadius: BorderRadius.circular(20),
                     ),
                     child: Text(
@@ -660,7 +742,9 @@ class _AppSelectorSheetState extends State<AppSelectorSheet> {
                       style: TextStyle(
                         fontSize: 12,
                         fontWeight: FontWeight.w600,
-                        color: isActive ? Colors.white : const Color(0xFF64748B),
+                        color: isActive
+                            ? Colors.white
+                            : const Color(0xFF64748B),
                       ),
                     ),
                   ),
@@ -860,7 +944,8 @@ class _AppSelectorSheetState extends State<AppSelectorSheet> {
         }
 
         final isPremium = RevenueCatService.instance.isPremium;
-        final isLockedForFree = !isPremium && !isSelected && _selectedApps.isNotEmpty;
+        final isLockedForFree =
+            !isPremium && !isSelected && _selectedApps.isNotEmpty;
 
         return ListTile(
           contentPadding: const EdgeInsets.symmetric(
@@ -880,7 +965,10 @@ class _AppSelectorSheetState extends State<AppSelectorSheet> {
               ),
               if (isLockedForFree)
                 Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 6,
+                    vertical: 2,
+                  ),
                   decoration: BoxDecoration(
                     color: const Color(0xFFFEF3C7),
                     borderRadius: BorderRadius.circular(6),
@@ -889,7 +977,11 @@ class _AppSelectorSheetState extends State<AppSelectorSheet> {
                   child: const Row(
                     mainAxisSize: MainAxisSize.min,
                     children: [
-                      Icon(Icons.lock_rounded, size: 10, color: Color(0xFFD97706)),
+                      Icon(
+                        Icons.lock_rounded,
+                        size: 10,
+                        color: Color(0xFFD97706),
+                      ),
                       SizedBox(width: 3),
                       Text(
                         'PREMIUM',
@@ -916,18 +1008,28 @@ class _AppSelectorSheetState extends State<AppSelectorSheet> {
             decoration: BoxDecoration(
               color: isSelected
                   ? const Color(0xFF2D3748)
-                  : (isLockedForFree ? const Color(0xFFFEF3C7) : Colors.transparent),
+                  : (isLockedForFree
+                        ? const Color(0xFFFEF3C7)
+                        : Colors.transparent),
               shape: BoxShape.circle,
               border: Border.all(
                 color: isSelected
                     ? const Color(0xFF2D3748)
-                    : (isLockedForFree ? const Color(0xFFF59E0B) : const Color(0xFFCBD5E0)),
+                    : (isLockedForFree
+                          ? const Color(0xFFF59E0B)
+                          : const Color(0xFFCBD5E0)),
                 width: 2,
               ),
             ),
             child: isSelected
                 ? const Icon(Icons.check, color: Colors.white, size: 16)
-                : (isLockedForFree ? const Icon(Icons.lock_rounded, color: Color(0xFFD97706), size: 14) : null),
+                : (isLockedForFree
+                      ? const Icon(
+                          Icons.lock_rounded,
+                          color: Color(0xFFD97706),
+                          size: 14,
+                        )
+                      : null),
           ),
           onTap: () => _toggleApp(app.packageName, app.appName),
         );

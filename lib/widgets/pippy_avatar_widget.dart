@@ -36,22 +36,40 @@ class PippyAvatarWidget extends StatefulWidget {
 }
 
 class _PippyAvatarWidgetState extends State<PippyAvatarWidget>
-    with SingleTickerProviderStateMixin {
+    with TickerProviderStateMixin, WidgetsBindingObserver {
   late AnimationController _controller;
+  late AnimationController _jumpController;
   final List<_FloatingHeart> _hearts = [];
 
   @override
   void initState() {
     super.initState();
+    WidgetsBinding.instance.addObserver(this);
     _controller = AnimationController(
       vsync: this,
       duration: const Duration(milliseconds: 1400),
     )..repeat();
+
+    _jumpController = AnimationController(
+      vsync: this,
+      duration: const Duration(milliseconds: 500),
+    );
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.resumed) {
+      if (!_controller.isAnimating) _controller.repeat();
+    } else {
+      if (_controller.isAnimating) _controller.stop();
+    }
   }
 
   @override
   void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
     _controller.dispose();
+    _jumpController.dispose();
     super.dispose();
   }
 
@@ -62,12 +80,15 @@ class _PippyAvatarWidgetState extends State<PippyAvatarWidget>
     widget.onTap?.call();
     CompanionService.instance.addBondingXp(2);
 
+    _jumpController.forward(from: 0.0);
+
     setState(() {
       _hearts.add(
         _FloatingHeart(
           offset: details.localPosition,
           createdAt: DateTime.now(),
-          dxSpread: (math.Random().nextDouble() * 40) - 20,
+          dxSpread: (math.Random().nextDouble() * 50) - 25,
+          emoji: ['💚', '✨', '🌱', '⭐', '💖'][math.Random().nextInt(5)],
         ),
       );
     });
@@ -100,7 +121,7 @@ class _PippyAvatarWidgetState extends State<PippyAvatarWidget>
             AnimatedBuilder(
               animation: _controller,
               builder: (context, _) {
-                final pulse = math.sin(_controller.value * math.pi * 2) * 0.15;
+                final pulse = math.sin(_controller.value * math.pi * 2) * 0.18;
                 final glowColor = streak >= 3
                     ? const Color(0xFFF59E0B) // Fiery streak glow
                     : widget.aura.coreColor;
@@ -121,31 +142,58 @@ class _PippyAvatarWidgetState extends State<PippyAvatarWidget>
               },
             ),
 
-            // Animated Mascot Canvas
+            // Animated Mascot Canvas with interactive jump/squash
             AnimatedBuilder(
-              animation: _controller,
+              animation: Listenable.merge([_controller, _jumpController]),
               builder: (context, _) {
-                return CustomPaint(
-                  size: Size(widget.size, widget.size),
-                  painter: _PippyPainter(
-                    progress: _controller.value,
-                    mood: widget.mood,
-                    aura: widget.aura,
-                    accessory: widget.accessory,
-                    streakDays: streak,
+                double jumpY = 0.0;
+                double jumpSquashX = 1.0;
+                double jumpSquashY = 1.0;
+
+                if (_jumpController.isAnimating) {
+                  final jv = _jumpController.value;
+                  // Parabolic jump arc
+                  jumpY = -math.sin(jv * math.pi) * 20.0;
+                  if (jv < 0.2) {
+                    jumpSquashX = 1.15;
+                    jumpSquashY = 0.85;
+                  } else if (jv > 0.8) {
+                    jumpSquashX = 1.12;
+                    jumpSquashY = 0.88;
+                  } else {
+                    jumpSquashX = 0.92;
+                    jumpSquashY = 1.08;
+                  }
+                }
+
+                return Transform.translate(
+                  offset: Offset(0, jumpY),
+                  child: Transform.scale(
+                    scaleX: jumpSquashX,
+                    scaleY: jumpSquashY,
+                    child: CustomPaint(
+                      size: Size(widget.size, widget.size),
+                      painter: _PippyPainter(
+                        progress: _controller.value,
+                        mood: widget.mood,
+                        aura: widget.aura,
+                        accessory: widget.accessory,
+                        streakDays: streak,
+                      ),
+                    ),
                   ),
                 );
               },
             ),
 
-            // Floating Tap Hearts
+            // Floating Tap Hearts & Sparkles
             ..._hearts.map((heart) {
               final age = DateTime.now().difference(heart.createdAt).inMilliseconds;
               final progress = (age / 900).clamp(0.0, 1.0);
-              final y = heart.offset.dy - (progress * 60);
+              final y = heart.offset.dy - (progress * 70);
               final x = heart.offset.dx + (heart.dxSpread * progress);
               final opacity = (1.0 - progress).clamp(0.0, 1.0);
-              final scale = 0.6 + (progress * 0.8);
+              final scale = 0.6 + (progress * 0.9);
 
               return Positioned(
                 left: x - 12,
@@ -154,7 +202,7 @@ class _PippyAvatarWidgetState extends State<PippyAvatarWidget>
                   opacity: opacity,
                   child: Transform.scale(
                     scale: scale,
-                    child: const Text('💚', style: TextStyle(fontSize: 20)),
+                    child: Text(heart.emoji, style: const TextStyle(fontSize: 20)),
                   ),
                 ),
               );
@@ -170,11 +218,13 @@ class _FloatingHeart {
   final Offset offset;
   final DateTime createdAt;
   final double dxSpread;
+  final String emoji;
 
   _FloatingHeart({
     required this.offset,
     required this.createdAt,
     required this.dxSpread,
+    this.emoji = '💚',
   });
 }
 
@@ -203,6 +253,7 @@ class _PippyPainter extends CustomPainter {
     double bodyBobY = 0.0;
     double bodySquashX = 1.0;
     double bodySquashY = 1.0;
+    double bodyTilt = 0.0;
     double leftLegAngle = 0.0;
     double rightLegAngle = 0.0;
     double leftArmAngle = 0.0;
@@ -212,44 +263,56 @@ class _PippyPainter extends CustomPainter {
     switch (mood) {
       case PippyMood.idle:
         final t = math.sin(progress * math.pi * 2);
-        bodyBobY = t * 3.0;
-        bodySquashX = 1.0 + (t * 0.02);
-        bodySquashY = 1.0 - (t * 0.02);
-        sproutAngle = math.sin(progress * math.pi * 2) * 0.08;
+        bodyBobY = t * 6.0;
+        bodySquashX = 1.0 + (t * 0.04);
+        bodySquashY = 1.0 - (t * 0.04);
+        bodyTilt = t * 0.04;
+        leftArmAngle = math.sin(progress * math.pi * 2) * 0.22;
+        rightArmAngle = -leftArmAngle;
+        sproutAngle = math.sin(progress * math.pi * 2) * 0.16;
         break;
 
       case PippyMood.walking:
         final t = math.sin(progress * math.pi * 4);
-        bodyBobY = -t.abs() * 8.0;
-        bodySquashX = 1.0 - (t * 0.04);
-        bodySquashY = 1.0 + (t * 0.04);
-        leftLegAngle = math.sin(progress * math.pi * 4) * 0.45;
+        bodyBobY = -t.abs() * 12.0;
+        bodySquashX = 1.0 - (t * 0.05);
+        bodySquashY = 1.0 + (t * 0.05);
+        bodyTilt = math.sin(progress * math.pi * 2) * 0.08;
+        leftLegAngle = math.sin(progress * math.pi * 4) * 0.55;
         rightLegAngle = -leftLegAngle;
-        leftArmAngle = -leftLegAngle * 0.6;
-        rightArmAngle = leftLegAngle * 0.6;
-        sproutAngle = math.sin(progress * math.pi * 4) * 0.2;
+        leftArmAngle = -leftLegAngle * 0.7;
+        rightArmAngle = leftLegAngle * 0.7;
+        sproutAngle = math.sin(progress * math.pi * 4) * 0.28;
         break;
 
       case PippyMood.sleepy:
         final t = math.sin(progress * math.pi * 2);
-        bodyBobY = 5.0 + (t * 2.0);
-        sproutAngle = 0.4;
+        bodyBobY = 6.0 + (t * 2.5);
+        bodySquashX = 1.04;
+        bodySquashY = 0.96;
+        sproutAngle = 0.45;
         break;
 
       case PippyMood.celebrate:
         final t = math.sin(progress * math.pi * 4);
-        bodyBobY = -t.abs() * 18.0;
-        bodySquashX = 1.0 + (t * 0.08);
-        bodySquashY = 1.0 - (t * 0.08);
-        leftArmAngle = -0.6;
-        rightArmAngle = 0.6;
-        sproutAngle = math.sin(progress * math.pi * 4) * 0.3;
+        bodyBobY = -t.abs() * 22.0;
+        bodySquashX = 1.0 + (t * 0.10);
+        bodySquashY = 1.0 - (t * 0.10);
+        bodyTilt = math.sin(progress * math.pi * 2) * 0.12;
+        leftLegAngle = math.sin(progress * math.pi * 4) * 0.3;
+        rightLegAngle = -leftLegAngle;
+        leftArmAngle = -0.7 + (math.sin(progress * math.pi * 4) * 0.2);
+        rightArmAngle = 0.7 - (math.sin(progress * math.pi * 4) * 0.2);
+        sproutAngle = math.sin(progress * math.pi * 4) * 0.35;
         break;
 
       case PippyMood.alert:
-        final t = math.sin(progress * math.pi * 8);
-        bodyBobY = t * 2.0;
-        sproutAngle = t * 0.15;
+        final t = math.sin(progress * math.pi * 6);
+        bodyBobY = -t.abs() * 8.0;
+        bodyTilt = math.sin(progress * math.pi * 6) * 0.06;
+        leftArmAngle = -0.4;
+        rightArmAngle = 0.4;
+        sproutAngle = t * 0.22;
         break;
     }
 
@@ -258,20 +321,7 @@ class _PippyPainter extends CustomPainter {
       _drawCelestialWings(canvas, 100, 110 + bodyBobY, progress);
     }
 
-    // 1. Ambient Ground Shadow
-    final shadowPaint = Paint()
-      ..shader = RadialGradient(
-        colors: [
-          Colors.black.withValues(alpha: 0.35),
-          Colors.transparent,
-        ],
-      ).createShader(Rect.fromCenter(center: const Offset(100, 184), width: 90, height: 24));
-    canvas.drawOval(
-      Rect.fromCenter(center: const Offset(100, 184), width: 85 * bodySquashX, height: 18),
-      shadowPaint,
-    );
-
-    // 2. Cute Feet / Shoes
+    // 1. Cute Feet / Shoes (Palette matches selected Aura)
     final shoePaint = Paint()
       ..shader = LinearGradient(
         colors: [aura.midColor, aura.deepColor],
@@ -302,6 +352,7 @@ class _PippyPainter extends CustomPainter {
     // 3. Puffy Body
     canvas.save();
     canvas.translate(100, 110 + bodyBobY);
+    canvas.rotate(bodyTilt);
     canvas.scale(bodySquashX, bodySquashY);
 
     final bodyRect = const Rect.fromLTWH(-55, -60, 110, 115);
@@ -319,7 +370,7 @@ class _PippyPainter extends CustomPainter {
     final sheenPaint = Paint()
       ..shader = LinearGradient(
         colors: [
-          Colors.white.withValues(alpha: 0.65),
+          Colors.white.withValues(alpha: 0.75),
           Colors.white.withValues(alpha: 0.0),
         ],
         begin: Alignment.topCenter,
@@ -355,14 +406,18 @@ class _PippyPainter extends CustomPainter {
     // 5. Eyes & Expression
     final eyePaint = Paint()..color = const Color(0xFF1E293B);
     final shinePaint = Paint()..color = Colors.white;
-    final blushPaint = Paint()..color = const Color(0xFFFF8BA7).withValues(alpha: 0.45);
+    final blushPaint = Paint()..color = const Color(0xFFFF8BA7).withValues(alpha: 0.50);
 
     // Rosy Cheeks
     canvas.drawOval(const Rect.fromLTWH(-42, 2, 18, 10), blushPaint);
     canvas.drawOval(const Rect.fromLTWH(24, 2, 18, 10), blushPaint);
 
-    if (mood == PippyMood.sleepy) {
-      // Sleeping curved eyes (^ ^)
+    // Dynamic Blinking (Occurs naturally during each animation cycle)
+    final bool isBlinking = (progress > 0.86 && progress < 0.94) &&
+        (mood == PippyMood.idle || mood == PippyMood.walking);
+
+    if (mood == PippyMood.sleepy || isBlinking) {
+      // Sleeping / Blinking curved happy eyes (^ ^)
       final sleepEye = Paint()
         ..color = const Color(0xFF1E293B)
         ..strokeWidth = 3.5
@@ -385,16 +440,16 @@ class _PippyPainter extends CustomPainter {
       // Sparkling Big Eyes with reflection dots
       canvas.drawOval(const Rect.fromLTWH(-27, -15, 16, 22), eyePaint);
       canvas.drawOval(const Rect.fromLTWH(11, -15, 16, 22), eyePaint);
-      canvas.drawCircle(const Offset(-22, -10), 4, shinePaint);
-      canvas.drawCircle(const Offset(16, -10), 4, shinePaint);
-      canvas.drawCircle(const Offset(-18, -4), 2, shinePaint);
-      canvas.drawCircle(const Offset(20, -4), 2, shinePaint);
+      canvas.drawCircle(const Offset(-22, -10), 4.5, shinePaint);
+      canvas.drawCircle(const Offset(16, -10), 4.5, shinePaint);
+      canvas.drawCircle(const Offset(-18, -4), 2.2, shinePaint);
+      canvas.drawCircle(const Offset(20, -4), 2.2, shinePaint);
     }
 
     // Mouth
     final mouthPaint = Paint()
       ..color = const Color(0xFF1E293B)
-      ..strokeWidth = 3
+      ..strokeWidth = 3.2
       ..style = PaintingStyle.stroke
       ..strokeCap = StrokeCap.round;
 
@@ -417,14 +472,19 @@ class _PippyPainter extends CustomPainter {
     switch (accessory) {
       case CompanionAccessory.sprout:
         final stemPaint = Paint()
-          ..color = const Color(0xFF10B981)
+          ..color = aura.deepColor
           ..strokeWidth = 4.5
           ..style = PaintingStyle.stroke
           ..strokeCap = StrokeCap.round;
         final stemPath = Path()..moveTo(0, 0)..quadraticBezierTo(2, -14, -4, -22);
         canvas.drawPath(stemPath, stemPaint);
 
-        final leafPaint = Paint()..color = const Color(0xFF34D399);
+        final leafPaint = Paint()
+          ..shader = LinearGradient(
+            colors: [aura.coreColor, aura.deepColor],
+            begin: Alignment.topLeft,
+            end: Alignment.bottomRight,
+          ).createShader(const Rect.fromLTWH(-6, -36, 30, 36));
         final pathL = Path()
           ..moveTo(0, 0)
           ..quadraticBezierTo(-6, -24, 8, -36)

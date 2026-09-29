@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:hive_flutter/hive_flutter.dart';
 import 'package:zo_app_blocker/zo_app_blocker.dart';
@@ -12,6 +13,7 @@ import '../services/time_bank.dart';
 import '../widgets/app_selector_sheet.dart';
 import '../widgets/pippy_avatar_widget.dart';
 import '../widgets/premium_glass_system.dart';
+import 'main_navigation_screen.dart';
 import 'paywall_screen.dart';
 
 /// Fravo's enhanced first-run experience — a 4-step animated walkthrough.
@@ -47,6 +49,7 @@ class _OnboardingScreenState extends State<OnboardingScreen>
   List<AppInfo> _popularApps = [];
   bool _loadingApps = true;
   bool _accessibilityEnabled = false;
+  bool _isCompleting = false;
 
   /// Selected app package names during the walkthrough.
   final Set<String> _selected = {};
@@ -96,13 +99,20 @@ class _OnboardingScreenState extends State<OnboardingScreen>
     OneSignalService.instance.setJourneyStage('onboarding_step_$index');
   }
 
-  void _skipOnboarding() {
-    final name = _currentPage < _stepNames.length ? _stepNames[_currentPage] : 'step_$_currentPage';
-    AnalyticsService.instance.logOnboardingAbandoned(
-      lastStepIndex: _currentPage,
-      reason: 'skipped_at_$name',
-    );
-    _completeOnboarding();
+  Future<void> _skipOnboarding() async {
+    if (_isCompleting) return;
+    try {
+      final name = _currentPage < _stepNames.length
+          ? _stepNames[_currentPage]
+          : 'step_$_currentPage';
+      unawaited(AnalyticsService.instance
+          .logOnboardingAbandoned(
+            lastStepIndex: _currentPage,
+            reason: 'skipped_at_$name',
+          )
+          .catchError((_) {}));
+    } catch (_) {}
+    await _completeOnboarding();
   }
 
   @override
@@ -115,31 +125,8 @@ class _OnboardingScreenState extends State<OnboardingScreen>
 
   Future<void> _loadPopularApps() async {
     try {
-      final rawApps = await BlockerService.instance.getInstalledApps();
-      final List<AppInfo> apps = [];
-      final seen = <String>{};
-
-      for (final raw in rawApps) {
-        try {
-          final app = AppInfo.fromMap(raw);
-          if (app.packageName.isNotEmpty && app.appName.isNotEmpty) {
-            seen.add(app.packageName);
-            apps.add(app);
-          }
-        } catch (_) {}
-      }
-
-      // Merge curated presets (even if not installed)
-      for (final preset in CommonApps.presets) {
-        if (!seen.contains(preset.packageName)) {
-          apps.add(
-            AppInfo(
-              appName: preset.name,
-              packageName: preset.packageName,
-            ),
-          );
-        }
-      }
+      final selectableApps = await BlockerService.instance.getSelectableApps();
+      final List<AppInfo> apps = List.from(selectableApps);
 
       // Prioritize top culprits, then alphabetical
       apps.sort((a, b) {
@@ -272,12 +259,20 @@ class _OnboardingScreenState extends State<OnboardingScreen>
   }
 
   Future<void> _saveSelectedApps() async {
-    // Save ONLY the exact apps selected by the user on the onboarding screen as the blocked app preset
-    await TimeBankService.instance.setBlockedApps(
-      _selected.toList(),
-      Map<String, String>.from(_selectedNames),
-    );
-    await BlockerService.instance.evaluateBlockState();
+    try {
+      // Save ONLY the exact apps selected by the user on the onboarding screen as the blocked app preset
+      await TimeBankService.instance.setBlockedApps(
+        _selected.toList(),
+        Map<String, String>.from(_selectedNames),
+      );
+    } catch (e) {
+      debugPrint('Onboarding _saveSelectedApps setBlockedApps error: $e');
+    }
+    try {
+      await BlockerService.instance.evaluateBlockState();
+    } catch (e) {
+      debugPrint('Onboarding _saveSelectedApps evaluateBlockState error: $e');
+    }
   }
 
   void _animateToPage(int page) {
@@ -289,30 +284,77 @@ class _OnboardingScreenState extends State<OnboardingScreen>
   }
 
   Future<void> _completeOnboarding() async {
-    await _saveSelectedApps();
-    final box = Hive.box('time_bank');
-    await box.put('completedOnboarding', true);
+    if (_isCompleting) return;
+    setState(() => _isCompleting = true);
 
-    final blockedAppsList = _selected.toList();
-    final primaryAppName = _selectedNames.values.firstOrNull ?? 'General';
-    final rewardRate = TimeBankService.instance.minutesPer1kSteps;
+    try {
+      // Fallback: If user skipped before picking apps, assign a default distraction app
+      if (_selected.isEmpty) {
+        final top = _topCulpritList.isNotEmpty
+            ? _topCulpritList.first
+            : (_popularApps.isNotEmpty ? _popularApps.first : null);
+        if (top != null) {
+          _selected.add(top.packageName);
+          _selectedNames[top.packageName] = top.appName;
+        } else {
+          _selected.add('com.instagram.android');
+          _selectedNames['com.instagram.android'] = 'Instagram';
+        }
+      }
 
-    // 1. Log event & user profile properties to Firebase Analytics
-    await AnalyticsService.instance.logOnboardingCompleted(
-      goal: _selectedGoal,
-      blockedApps: blockedAppsList,
-      rewardRate: rewardRate,
-    );
+      await _saveSelectedApps();
 
-    // 2. Sync user profile tags to OneSignal for segmented notifications
-    await OneSignalService.instance.syncOnboardingUserProfile(
-      goal: _selectedGoal,
-      blockedApps: blockedAppsList,
-      primaryAppName: primaryAppName,
-      rewardRate: rewardRate,
-    );
+      try {
+        final box = Hive.isBoxOpen('time_bank')
+            ? Hive.box('time_bank')
+            : await Hive.openBox('time_bank');
+        await box.put('completedOnboarding', true);
+      } catch (e) {
+        debugPrint('Onboarding Hive save error: $e');
+      }
 
-    widget.onOnboardingComplete();
+      final blockedAppsList = _selected.toList();
+      final primaryAppName = _selectedNames.values.firstOrNull ?? 'General';
+      final rewardRate = TimeBankService.instance.minutesPer1kSteps;
+
+      // 1. Log event & user profile properties to Firebase Analytics (unawaited background task)
+      unawaited(AnalyticsService.instance
+          .logOnboardingCompleted(
+            goal: _selectedGoal,
+            blockedApps: blockedAppsList,
+            rewardRate: rewardRate,
+          )
+          .catchError((e) {
+        debugPrint('Analytics logOnboardingCompleted error: $e');
+      }));
+
+      // 2. Sync user profile tags to OneSignal for segmented notifications (unawaited background task)
+      unawaited(OneSignalService.instance
+          .syncOnboardingUserProfile(
+            goal: _selectedGoal,
+            blockedApps: blockedAppsList,
+            primaryAppName: primaryAppName,
+            rewardRate: rewardRate,
+          )
+          .catchError((e) {
+        debugPrint('OneSignal syncOnboardingUserProfile error: $e');
+      }));
+
+      try {
+        widget.onOnboardingComplete();
+      } catch (e) {
+        debugPrint('Onboarding widget.onOnboardingComplete error: $e');
+      }
+    } catch (e) {
+      debugPrint('Onboarding _completeOnboarding unexpected error: $e');
+    } finally {
+      if (mounted) {
+        Navigator.of(context).pushAndRemoveUntil(
+          MaterialPageRoute(builder: (_) => const MainNavigationScreen()),
+          (route) => false,
+        );
+      }
+    }
   }
 
   @override
@@ -346,15 +388,24 @@ class _OnboardingScreenState extends State<OnboardingScreen>
                     ),
                   ),
                   TextButton(
-                    onPressed: _skipOnboarding,
-                    child: const Text(
-                      'Skip',
-                      style: TextStyle(
-                        fontSize: 14,
-                        fontWeight: FontWeight.w600,
-                        color: Color(0xFF6B7280),
-                      ),
-                    ),
+                    onPressed: _isCompleting ? null : _skipOnboarding,
+                    child: _isCompleting
+                        ? const SizedBox(
+                            width: 14,
+                            height: 14,
+                            child: CircularProgressIndicator(
+                              strokeWidth: 2,
+                              color: Color(0xFF4A90E2),
+                            ),
+                          )
+                        : const Text(
+                            'Skip',
+                            style: TextStyle(
+                              fontSize: 14,
+                              fontWeight: FontWeight.w600,
+                              color: Color(0xFF6B7280),
+                            ),
+                          ),
                   ),
                 ],
               ),
@@ -678,68 +729,100 @@ class _OnboardingScreenState extends State<OnboardingScreen>
     );
   }
 
-  // ── Pippy Dynamic Guide Banner ──────────────────────────────────────────
+  // ── Pippy Dynamic Animated Guide Banner ──────────────────────────────────
 
   Widget _buildPippyGuideBanner() {
     final companion = CompanionService.instance;
     PippyMood mood;
     String dialogue;
+    Color bubbleColor = const Color(0xFFE8FDF3);
 
     switch (_currentPage) {
       case 0:
         mood = PippyMood.idle;
-        dialogue = 'Hi! I\'m ${companion.name}, your focus companion 🌱 What goal shall we conquer today?';
+        dialogue = 'Hi! I\'m ${companion.name} 🌱 Pick your main goal and I\'ll help keep your focus sharp!';
         break;
       case 1:
         mood = PippyMood.alert;
-        dialogue = 'Pick your biggest distraction apps. I\'ll help lock them until you walk!';
+        dialogue = 'Select your biggest distraction apps below 📱 I\'ll pause them when screen time expires!';
         break;
       case 2:
         mood = PippyMood.walking;
-        dialogue = 'Every 1,000 steps earns screen time! Let\'s get active together 🚶‍♂️';
+        dialogue = 'Every 1,000 steps earns screen time! 🚶‍♂️ Step up to unlock your favorite apps.';
         break;
       case 3:
       default:
         mood = _accessibilityEnabled ? PippyMood.celebrate : PippyMood.alert;
         dialogue = _accessibilityEnabled
-            ? 'Awesome! Fravo Blocker Engine is active. Let\'s launch your dashboard! 🎉'
-            : 'Final step! Enable the Fravo Blocker Engine in Accessibility to shield your focus 🛡️';
+            ? 'Awesome! Fravo App Blocker Engine is active 🎉 Tap below to launch your dashboard!'
+            : 'In Settings: Look for "Fravo App Blocker Engine" under Downloaded Apps / Installed Services, then toggle ON 🛡️';
+        bubbleColor = _accessibilityEnabled ? const Color(0xFFE8FDF3) : const Color(0xFFFEF3C7);
         break;
     }
 
-    return Container(
-      margin: const EdgeInsets.fromLTRB(24, 6, 24, 6),
-      child: PuffyGlassContainer(
-        tintColor: const Color(0xFFE8FDF3),
-        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
-        child: Row(
-          children: [
-            PippyAvatarWidget(
-              size: 52,
-              mood: mood,
-              aura: companion.aura,
-              accessory: companion.accessory,
-              streakDays: 0,
-            ),
-            const SizedBox(width: 12),
-            Expanded(
-              child: Text(
-                dialogue,
-                style: const TextStyle(
-                  fontSize: 12.5,
-                  fontWeight: FontWeight.w600,
-                  color: Color(0xFF065F46),
-                  height: 1.3,
+    return AnimatedSwitcher(
+      duration: const Duration(milliseconds: 350),
+      child: Container(
+        key: ValueKey<int>(_currentPage),
+        margin: const EdgeInsets.fromLTRB(24, 6, 24, 6),
+        child: PuffyGlassContainer(
+          tintColor: bubbleColor,
+          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+          child: Row(
+            children: [
+              PippyAvatarWidget(
+                size: 48,
+                mood: mood,
+                aura: companion.aura,
+                accessory: companion.accessory,
+                streakDays: 0,
+              ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Row(
+                      children: [
+                        Text(
+                          '${companion.name} Guide',
+                          style: TextStyle(
+                            fontSize: 11,
+                            fontWeight: FontWeight.w800,
+                            color: _currentPage == 3 && !_accessibilityEnabled
+                                ? const Color(0xFFB45309)
+                                : const Color(0xFF047857),
+                            letterSpacing: 0.3,
+                          ),
+                        ),
+                        const SizedBox(width: 4),
+                        Text(
+                          _currentPage == 3 && !_accessibilityEnabled ? '⚠️ Setup' : '✨ Tip',
+                          style: const TextStyle(fontSize: 10),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 2),
+                    Text(
+                      dialogue,
+                      style: const TextStyle(
+                        fontSize: 12,
+                        fontWeight: FontWeight.w600,
+                        color: Color(0xFF1F2937),
+                        height: 1.35,
+                      ),
+                    ),
+                  ],
                 ),
               ),
-            ),
-          ],
+            ],
+          ),
         ),
       ),
     );
   }
 
-  // ── Step 3: Accessibility & Fravo Blocker Engine Guide ────────────────────
+  // ── Step 3: Accessibility & Fravo App Blocker Engine Guide ────────────────
 
   Widget _buildAccessibilityEngineStep() {
     return Padding(
@@ -759,7 +842,7 @@ class _OnboardingScreenState extends State<OnboardingScreen>
           ),
           const SizedBox(height: 4),
           const Text(
-            'Fravo needs Accessibility Service permission to pause your selected apps when screen time expires.',
+            'Fravo requires Accessibility Service permission to pause selected apps when your time runs out.',
             style: TextStyle(
               fontSize: 13,
               color: Color(0xFF6B7280),
@@ -785,8 +868,9 @@ class _OnboardingScreenState extends State<OnboardingScreen>
                     icon: Icons.shield_rounded,
                     iconBg: const Color(0xFFF0FDF4),
                     iconColor: const Color(0xFF10B981),
-                    title: 'Select "Fravo Blocker Engine"',
-                    subtitle: 'Find Fravo in the accessibility list',
+                    title: 'Select "Fravo App Blocker Engine"',
+                    subtitle: 'Look for Fravo in the accessibility services list',
+                    highlightBadge: 'Fravo App Blocker Engine',
                   ),
                   const SizedBox(height: 10),
                   _buildGuideStepCard(
@@ -795,7 +879,7 @@ class _OnboardingScreenState extends State<OnboardingScreen>
                     iconBg: const Color(0xFFFFFBEB),
                     iconColor: const Color(0xFFF59E0B),
                     title: 'Toggle ON & Tap Allow',
-                    subtitle: 'Activate the automatic screen-time blocker',
+                    subtitle: 'Activate automated screen-time protection',
                   ),
                   const SizedBox(height: 14),
                   Container(
@@ -848,32 +932,46 @@ class _OnboardingScreenState extends State<OnboardingScreen>
           SizedBox(
             width: double.infinity,
             child: VibrantGlassButton(
-              label: _accessibilityEnabled
-                  ? 'Launch Fravo Dashboard 🚀'
-                  : 'Turn ON Fravo Engine 🛡️',
+              label: _isCompleting
+                  ? 'Launching Dashboard...'
+                  : (_accessibilityEnabled
+                      ? 'Launch Fravo Dashboard 🚀'
+                      : 'Turn ON Fravo Engine 🛡️'),
+              icon: _isCompleting
+                  ? null
+                  : (_accessibilityEnabled
+                      ? Icons.rocket_launch_rounded
+                      : Icons.shield_rounded),
               gradientColors: _accessibilityEnabled
                   ? const [Color(0xFF10B981), Color(0xFF059669)]
                   : const [Color(0xFF3B82F6), Color(0xFF10B981)],
-              onPressed: () async {
-                if (_accessibilityEnabled) {
-                  _completeOnboarding();
-                } else {
-                  await BlockerService.instance.requestAccessibilityPermission();
-                }
-              },
+              onPressed: _isCompleting
+                  ? null
+                  : () async {
+                      if (_accessibilityEnabled) {
+                        await _completeOnboarding();
+                      } else {
+                        await BlockerService.instance.requestAccessibilityPermission();
+                      }
+                    },
             ),
           ),
           if (!_accessibilityEnabled) ...[
-            const SizedBox(height: 4),
+            const SizedBox(height: 6),
             Center(
-              child: TextButton(
-                onPressed: _completeOnboarding,
-                child: const Text(
-                  'I\'ll enable this later in Settings',
+              child: TextButton.icon(
+                onPressed: _isCompleting ? null : _completeOnboarding,
+                icon: const Icon(
+                  Icons.arrow_forward_rounded,
+                  size: 15,
+                  color: Color(0xFF6B7280),
+                ),
+                label: const Text(
+                  'Launch Dashboard (Enable in Settings Later) 🚀',
                   style: TextStyle(
-                    fontSize: 12,
+                    fontSize: 12.5,
                     fontWeight: FontWeight.w600,
-                    color: Color(0xFF9CA3AF),
+                    color: Color(0xFF4B5563),
                   ),
                 ),
               ),
@@ -892,13 +990,19 @@ class _OnboardingScreenState extends State<OnboardingScreen>
     required Color iconColor,
     required String title,
     required String subtitle,
+    String? highlightBadge,
   }) {
     return Container(
       padding: const EdgeInsets.all(14),
       decoration: BoxDecoration(
-        color: Colors.white,
+        color: highlightBadge != null ? const Color(0xFFF0FDF4) : Colors.white,
         borderRadius: BorderRadius.circular(18),
-        border: Border.all(color: const Color(0xFFE5E7EB)),
+        border: Border.all(
+          color: highlightBadge != null
+              ? const Color(0xFF10B981).withValues(alpha: 0.5)
+              : const Color(0xFFE5E7EB),
+          width: highlightBadge != null ? 1.5 : 1.0,
+        ),
         boxShadow: [
           BoxShadow(
             color: Colors.black.withValues(alpha: 0.03),
@@ -941,6 +1045,24 @@ class _OnboardingScreenState extends State<OnboardingScreen>
                     color: Color(0xFF1F2937),
                   ),
                 ),
+                if (highlightBadge != null) ...[
+                  const SizedBox(height: 3),
+                  Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+                    decoration: BoxDecoration(
+                      color: const Color(0xFF10B981).withValues(alpha: 0.12),
+                      borderRadius: BorderRadius.circular(6),
+                    ),
+                    child: Text(
+                      '🔍 $highlightBadge',
+                      style: const TextStyle(
+                        fontSize: 11,
+                        fontWeight: FontWeight.bold,
+                        color: Color(0xFF047857),
+                      ),
+                    ),
+                  ),
+                ],
                 const SizedBox(height: 2),
                 Text(
                   subtitle,
@@ -1158,14 +1280,12 @@ class _WalkToEarnStepState extends State<_WalkToEarnStep>
   }
 
   Future<void> _checkPermission() async {
-    final granted =
-        await HealthService.instance.checkActivityRecognitionPermission();
+    final granted = await HealthService.instance.checkPermissions();
     if (mounted) setState(() => _permissionGranted = granted);
   }
 
   Future<void> _requestPermission() async {
-    final granted =
-        await HealthService.instance.requestActivityRecognitionPermission();
+    final granted = await HealthService.instance.requestPermissions();
     if (mounted) setState(() => _permissionGranted = granted);
   }
 

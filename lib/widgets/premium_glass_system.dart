@@ -56,7 +56,7 @@ class PuffyGlassContainer extends StatelessWidget {
     return ClipRRect(
       borderRadius: BorderRadius.circular(borderRadius),
       child: BackdropFilter(
-        filter: ImageFilter.blur(sigmaX: 24, sigmaY: 24),
+        filter: ImageFilter.blur(sigmaX: 12, sigmaY: 12),
         child: Stack(
           children: [
             // Base tint
@@ -184,11 +184,10 @@ class _PuffyGlassPillButtonState extends State<PuffyGlassPillButton> {
   @override
   Widget build(BuildContext context) {
     return GestureDetector(
+      behavior: HitTestBehavior.opaque,
       onTapDown: (_) => setState(() => _pressed = true),
-      onTapUp: (_) {
-        setState(() => _pressed = false);
-        widget.onPressed?.call();
-      },
+      onTap: widget.onPressed,
+      onTapUp: (_) => setState(() => _pressed = false),
       onTapCancel: () => setState(() => _pressed = false),
       child: AnimatedScale(
         scale: _pressed ? 0.97 : 1.0,
@@ -256,11 +255,10 @@ class _PuffyGlassSubtlePillState extends State<PuffyGlassSubtlePill> {
   @override
   Widget build(BuildContext context) {
     return GestureDetector(
+      behavior: HitTestBehavior.opaque,
       onTapDown: (_) => setState(() => _pressed = true),
-      onTapUp: (_) {
-        setState(() => _pressed = false);
-        widget.onPressed?.call();
-      },
+      onTap: widget.onPressed,
+      onTapUp: (_) => setState(() => _pressed = false),
       onTapCancel: () => setState(() => _pressed = false),
       child: AnimatedScale(
         scale: _pressed ? 0.97 : 1.0,
@@ -407,6 +405,7 @@ class PuffyGlassSwitch extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return GestureDetector(
+      behavior: HitTestBehavior.opaque,
       onTap: () => onChanged?.call(!value),
       child: PuffyGlassContainer(
         borderRadius: 30,
@@ -483,6 +482,7 @@ class _PuffyGlassTabsState extends State<PuffyGlassTabs> {
         children: List.generate(widget.labels.length, (i) {
           final selected = i == widget.currentIndex;
           return GestureDetector(
+            behavior: HitTestBehavior.opaque,
             onTap: () => widget.onChanged(i),
             child: AnimatedContainer(
               duration: const Duration(milliseconds: 220),
@@ -548,11 +548,10 @@ class _PuffyGlassIconButtonState extends State<PuffyGlassIconButton> {
   @override
   Widget build(BuildContext context) {
     return GestureDetector(
+      behavior: HitTestBehavior.opaque,
       onTapDown: (_) => setState(() => _pressed = true),
-      onTapUp: (_) {
-        setState(() => _pressed = false);
-        widget.onPressed?.call();
-      },
+      onTap: widget.onPressed,
+      onTapUp: (_) => setState(() => _pressed = false),
       onTapCancel: () => setState(() => _pressed = false),
       child: AnimatedScale(
         scale: _pressed ? 0.92 : 1.0,

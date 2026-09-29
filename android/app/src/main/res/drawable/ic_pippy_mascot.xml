@@ -1,0 +1,69 @@
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="90dp"
+    android:height="100dp"
+    android:viewportWidth="100"
+    android:viewportHeight="110">
+
+    <!-- Top Sprout Leaf -->
+    <path
+        android:fillColor="#10B981"
+        android:pathData="M50,22 Q54,12 66,16 Q58,24 50,26 Q42,24 34,16 Q46,12 50,22 Z" />
+
+    <path
+        android:fillColor="#059669"
+        android:pathData="M50,22m-3,0a3,3 0,1 1,6 0a3,3 0,1 1,-6 0" />
+
+    <!-- Feet -->
+    <path
+        android:fillColor="#059669"
+        android:pathData="M38,98m-10,0a10,6 0,1 1,20 0a10,6 0,1 1,-20 0" />
+
+    <path
+        android:fillColor="#059669"
+        android:pathData="M62,98m-10,0a10,6 0,1 1,20 0a10,6 0,1 1,-20 0" />
+
+    <!-- Puffy Mint Body -->
+    <path
+        android:fillColor="#34D399"
+        android:pathData="M50,62m-36,0a36,38 0,1 1,72 0a36,38 0,1 1,-72 0" />
+
+    <!-- Top Soft Highlight -->
+    <path
+        android:fillColor="#A7F3D0"
+        android:pathData="M50,56m-30,0a30,30 0,1 1,60 0a30,30 0,1 1,-60 0" />
+
+    <!-- Blush Cheeks -->
+    <path
+        android:fillColor="#FDA4AF"
+        android:pathData="M32,66m-6,0a6,3.5 0,1 1,12 0a6,3.5 0,1 1,-12 0" />
+
+    <path
+        android:fillColor="#FDA4AF"
+        android:pathData="M68,66m-6,0a6,3.5 0,1 1,12 0a6,3.5 0,1 1,-12 0" />
+
+    <!-- Left Kawaii Eye -->
+    <path
+        android:fillColor="#1E293B"
+        android:pathData="M37,56m-5,0a5,5 0,1 1,10 0a5,5 0,1 1,-10 0" />
+
+    <path
+        android:fillColor="#FFFFFF"
+        android:pathData="M35.5,54.5m-2,0a2,2 0,1 1,4 0a2,2 0,1 1,-4 0" />
+
+    <!-- Right Kawaii Eye -->
+    <path
+        android:fillColor="#1E293B"
+        android:pathData="M63,56m-5,0a5,5 0,1 1,10 0a5,5 0,1 1,-10 0" />
+
+    <path
+        android:fillColor="#FFFFFF"
+        android:pathData="M61.5,54.5m-2,0a2,2 0,1 1,4 0a2,2 0,1 1,-4 0" />
+
+    <!-- Cute Smile -->
+    <path
+        android:strokeColor="#1E293B"
+        android:strokeWidth="2"
+        android:strokeLineCap="round"
+        android:pathData="M46,67 Q50,71 54,67" />
+
+</vector>

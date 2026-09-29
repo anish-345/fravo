@@ -11,7 +11,7 @@ import 'time_bank.dart';
 /// Maintaining a streak automatically equips fiery visual aura effects and titles.
 /// If the streak breaks, these automated effects are instantly removed!
 enum StreakTier {
-  sprout(0, '🌱 Sprout Seeker', 'Level 1', 'Maintain a 3-day walking streak to ignite Pippy\'s Flame!'),
+  sprout(0, '🌱 Sprout Seeker', 'Level 1', 'Maintain a 3-day walking streak to ignite Fravo\'s Flame!'),
   flame(3, '🔥 Flame Guardian', 'Level 2', '3+ Day Streak: Active Flame Glow unlocked!'),
   electric(7, '⚡ Neon Speedster', 'Level 3', '7+ Day Streak: Electric Energy Halo unlocked!'),
   winged(14, '🪽 Winged Champion', 'Level 4', '14+ Day Streak: Golden Celestial Wings unlocked!'),
@@ -300,13 +300,14 @@ class CompanionService extends ChangeNotifier {
   static const String _bondingXpKey = 'companion_bonding_xp';
   static const String _pledgeSealedDateKey = 'companion_pledge_date';
 
-  String _name = 'Pippy';
+  String _name = 'Fravo';
   String _userName = 'Friend';
   CompanionAura _aura = CompanionAura.mint;
   CompanionAccessory _accessory = CompanionAccessory.sprout;
   CompanionPersonality _personality = CompanionPersonality.zen;
   LifeQuest _activeQuest = LifeQuest.dopamine;
   int _bondingXp = 45;
+  bool _isPremiumListenerAttached = false;
 
   String get name => _name;
   String get userName => _userName;
@@ -384,7 +385,7 @@ class CompanionService extends ChangeNotifier {
   Future<void> init() async {
     try {
       final box = Hive.box(_boxName);
-      _name = (box.get(_nameKey) as String?) ?? 'Pippy';
+      _name = (box.get(_nameKey) as String?) ?? 'Fravo';
       _userName = (box.get(_userNameKey) as String?) ?? 'Friend';
 
       final auraStr = box.get(_auraKey) as String?;
@@ -422,9 +423,10 @@ class CompanionService extends ChangeNotifier {
       _bondingXp = (box.get(_bondingXpKey) as int?) ?? 45;
 
       // Listen to Premium changes: as soon as Pro expires, auto-revert mascot to normal
-      RevenueCatService.instance.isPremiumNotifier.addListener(() {
-        notifyListeners();
-      });
+      if (!_isPremiumListenerAttached) {
+        RevenueCatService.instance.isPremiumNotifier.addListener(notifyListeners);
+        _isPremiumListenerAttached = true;
+      }
 
       notifyListeners();
     } catch (e) {
@@ -572,6 +574,84 @@ class CompanionService extends ChangeNotifier {
         return '🎯 "Discipline equals freedom, $_userName. Keep stacking your banked minutes."';
       case CompanionPersonality.cozy:
         return '🧸 "Hi $_userName! Want to take a cozy little stretch together with $name?"';
+    }
+  }
+
+  /// Dialogue for the Emergency 3-Min Booster modal adapted to the companion's active personality voice.
+  String getEmergencyBoostDialogue() {
+    switch (_personality) {
+      case CompanionPersonality.zen:
+        return 'Take a calm, centering breath. If you need a peaceful 3-minute pause to wrap things up, watch a quick moment with me and I\'ll unlock it for you.';
+      case CompanionPersonality.hype:
+        return 'YOOOO $_userName! Let\'s get that instant power surge! 🔥 Watch a quick sponsor video and BAM — 3 free minutes unlocked for you right now!';
+      case CompanionPersonality.coach:
+        return 'Tactical 3-minute extension available, $_userName. Watch a quick sponsor clip to deploy your instant focus buffer.';
+      case CompanionPersonality.cozy:
+        return 'Aww, need a tiny warm breather, $_userName? $name is here to help! Watch a quick little video and we\'ll unlock 3 cozy minutes together! 💖';
+    }
+  }
+
+  /// Dialogue when daily emergency passes are exhausted.
+  String getEmergencyLimitReachedDialogue({required bool isPremium}) {
+    switch (_personality) {
+      case CompanionPersonality.zen:
+        return isPremium
+            ? '🌿 You have embraced all 3 daily boosts with mindfulness today. Rest easy, they replenish at midnight.'
+            : '🌿 Your daily booster is resting for today. A gentle walk will awaken fresh focus minutes, or unlock 3 boosts with Pro.';
+      case CompanionPersonality.hype:
+        return isPremium
+            ? '🔥 BOOM! All 3 boosts used today, champion! Time to lace up those sneakers for real steps!'
+            : '⚡ Daily boost used! Want 3 daily boosts every single day? Pro is where it\'s at, $_userName!';
+      case CompanionPersonality.coach:
+        return isPremium
+            ? '🏆 Daily booster quota fulfilled (3/3). Resume standard step acquisition protocol.'
+            : '🎯 Single free booster utilized. Upgrade to Pro for 3 daily emergency protocols.';
+      case CompanionPersonality.cozy:
+        return isPremium
+            ? '💖 All 3 cozy boosts used up today! Time for a happy little stretch together with $name!'
+            : '🧸 That was our cozy booster for today! We can walk a tiny bit or unlock 3 daily boosts in Pro!';
+    }
+  }
+
+  /// Dialogue for the Update Blocklist Ad modal.
+  String getBlocklistUpdateDialogue() {
+    switch (_personality) {
+      case CompanionPersonality.zen:
+        return 'Mindful adjustments keep our digital space peaceful. Watch a brief sponsor moment with me to align and commit your updated focus shield.';
+      case CompanionPersonality.hype:
+        return 'LET\'S GO $_userName! Locking down distractions like a boss! 🛡️ Watch a quick video with me to lock in your updated app shield!';
+      case CompanionPersonality.coach:
+        return 'Perimeter defense adjustment initiated. Confirm your strategy by watching a quick sponsor briefing to commit changes.';
+      case CompanionPersonality.cozy:
+        return 'Making our focus nest even safer? Watch a quick little video with $name and I\'ll tuck your updated apps in nice and snug! 💖';
+    }
+  }
+
+  /// Dialogue for 1 App Limit / Pro perks.
+  String getAppLimitUpgradeDialogue() {
+    switch (_personality) {
+      case CompanionPersonality.zen:
+        return 'On our standard path, $name mindfully guards 1 focus app. Expand your sanctuary to unlimited shields and serene auras with Pro.';
+      case CompanionPersonality.hype:
+        return 'Ready to go UNSTOPPABLE, $_userName?! Free tier guards 1 app — Pro unlocks UNLIMITED apps, custom walk rates, and epic wardrobe drip! 🔥';
+      case CompanionPersonality.coach:
+        return 'Standard protocol restricts active containment to 1 app. Elevate to Pro for unrestricted multi-app isolation and advanced analytics.';
+      case CompanionPersonality.cozy:
+        return 'On the free plan, $name hugs 1 app at a time. Upgrade to Pro so we can cuddle all your apps and unlock the prettiest wardrobe auras! 🌸';
+    }
+  }
+
+  /// Dialogue for strict rates lock.
+  String getStrictRateLockDialogue() {
+    switch (_personality) {
+      case CompanionPersonality.zen:
+        return 'Deep, mindful focus requires steady discipline. Strict walking challenge rates (5–20 min / 1k steps) await you in Fravo Pro.';
+      case CompanionPersonality.hype:
+        return 'WHOA, looking for that hardcore challenge, $_userName?! Strict step rates (5–20 min / 1,000 steps) are unlocked in Fravo Pro! 🔥';
+      case CompanionPersonality.coach:
+        return 'High-intensity discipline protocol: Strict conversion ratios demand peak commitment. Unlock custom rates with Fravo Pro.';
+      case CompanionPersonality.cozy:
+        return 'Ready for extra special walking quests together? Strict challenge rates and cute rewards are waiting in our cozy Pro tier! ✨';
     }
   }
 }

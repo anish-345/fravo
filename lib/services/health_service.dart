@@ -1,5 +1,5 @@
 import 'dart:async';
-import 'package:flutter/foundation.dart';
+import 'package:flutter/widgets.dart';
 import 'package:health/health.dart';
 import 'package:hive_flutter/hive_flutter.dart';
 import 'package:pedometer/pedometer.dart';
@@ -17,8 +17,10 @@ import 'blocker_service.dart';
 ///    battery optimization state).
 /// 3. **Rate limiting** — Block state re-evaluation is limited to once per
 ///    minute maximum to reduce native overhead.
-class HealthService {
-  HealthService._();
+class HealthService with WidgetsBindingObserver {
+  HealthService._() {
+    WidgetsBinding.instance.addObserver(this);
+  }
 
   static final HealthService instance = HealthService._();
 
@@ -58,13 +60,15 @@ class HealthService {
   // ── Pedometer (hardware sensor, instant) ──────────────────────────────────
 
   /// Starts the hardware step-count stream listener with **debouncing**.
+  /// Does NOT prompt the user automatically — only attaches if permission is already granted.
   Future<void> initPedometerListener() async {
     if (_pedometerSubscription != null) return;
     try {
       final status = await Permission.activityRecognition.status;
       if (!status.isGranted) {
-        final req = await Permission.activityRecognition.request();
-        if (!req.isGranted) return;
+        // Do not request permission automatically during init (which runs on app startup).
+        // The permission dialog will be shown when the user reaches the onboarding or settings step.
+        return;
       }
 
       _pedometerSubscription = Pedometer.stepCountStream.listen(
@@ -232,11 +236,19 @@ class HealthService {
     }
   }
 
+  Future<bool> checkPermissions() async {
+    final activityGranted = await checkActivityRecognitionPermission();
+    final healthConnectGranted = await checkHealthConnectPermission();
+    return activityGranted || healthConnectGranted;
+  }
+
   Future<bool> requestPermissions() async {
-    final healthConnectGranted = await requestHealthConnectPermission();
+    // 1. Request Physical Activity (Hardware Motion Sensor)
     final activityRecognitionGranted =
         await requestActivityRecognitionPermission();
-    return healthConnectGranted || activityRecognitionGranted;
+    // 2. Request Google Health Connect (Steps from smartwatches / other fitness apps)
+    final healthConnectGranted = await requestHealthConnectPermission();
+    return activityRecognitionGranted || healthConnectGranted;
   }
 
   // ── Step fetching ─────────────────────────────────────────────────────────
@@ -302,9 +314,24 @@ class HealthService {
     return 0;
   }
 
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.detached) {
+      dispose();
+    } else if (state == AppLifecycleState.resumed) {
+      if (_pedometerSubscription == null) {
+        initPedometerListener();
+      }
+    }
+  }
+
   void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
     _pedometerSubscription?.cancel();
+    _pedometerSubscription = null;
     _healthConnectTimer?.cancel();
+    _healthConnectTimer = null;
     _debounceTimer?.cancel();
+    _debounceTimer = null;
   }
 }

@@ -276,10 +276,7 @@ class AppBlockerForegroundService : Service() {
             if (remaining <= 0L) {
                 flushActiveSessionTo(prefsManager)
                 ensureAppIsBlocked(currentPkg, prefsManager)
-                // Kill the app if it is in the foreground
-                if (currentPkg == lastPackage && currentPkg.isNotEmpty()) {
-                    killForegroundApp()
-                }
+                showOverlayForPackage(currentPkg)
                 updateNotificationDefault(prefsManager)
                 return
             }
@@ -300,10 +297,7 @@ class AppBlockerForegroundService : Service() {
             if (liveRemaining <= 0L) {
                 flushActiveSessionTo(prefsManager)
                 ensureAppIsBlocked(currentPkg, prefsManager)
-                // Kill the app if it is in the foreground
-                if (currentPkg == lastPackage && currentPkg.isNotEmpty()) {
-                    killForegroundApp()
-                }
+                showOverlayForPackage(currentPkg)
                 updateNotificationDefault(prefsManager)
                 return
             }
@@ -652,15 +646,16 @@ class AppBlockerForegroundService : Service() {
         resetSessionState()
         prefsManager.resetAllDailyUsage()
 
+        // In Fravo, apps must NEVER be automatically unblocked at midnight.
+        // Users earn screen time exclusively by walking steps on the new day.
+        // Ensure all monitored apps remain explicitly blocked at midnight.
+        val configuredApps = prefsManager.getBlockedApps()
         val timeLimitedPackages = prefsManager.getTimeLimitedPackages()
-        if (timeLimitedPackages.isNotEmpty()) {
-            val currentBlocked = prefsManager.getBlockedApps().toMutableSet()
-            val wasModified = currentBlocked.removeAll(timeLimitedPackages)
-            if (wasModified) {
-                prefsManager.saveBlockedApps(currentBlocked)
-                checkCurrentForegroundApp()
-            }
+        val allMonitored = (configuredApps + timeLimitedPackages).toMutableSet()
+        if (allMonitored.isNotEmpty()) {
+            prefsManager.saveBlockedApps(allMonitored)
         }
+        checkCurrentForegroundApp()
     }
 
     // -------------------------------------------------------------------------

@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'package:flutter/foundation.dart';
 import 'package:home_widget/home_widget.dart';
 
@@ -9,7 +10,10 @@ class WidgetService {
   static const String androidWidgetProviderName = 'FravoWidgetProvider';
   static const String iosWidgetKindName = 'FravoWidget';
 
+  Timer? _debounceTimer;
+
   /// Save current dashboard statistics to widget storage and trigger a refresh.
+  /// Coalesces rapid updates with a 1.5s debounce unless [forceInstant] is true.
   Future<void> updateWidgetData({
     required int steps,
     required int stepGoal,
@@ -17,10 +21,60 @@ class WidgetService {
     required int usedMinutes,
     required int remainingMinutes,
     required bool isPremium,
+    int streakDays = 1,
+    String? dialogue,
+    String? selectedAppPackage,
+    String? selectedAppName,
+    bool forceInstant = false,
+  }) async {
+    if (kIsWeb) return;
+
+    if (forceInstant) {
+      _debounceTimer?.cancel();
+      await _writeWidgetData(
+        steps: steps,
+        stepGoal: stepGoal,
+        earnedMinutes: earnedMinutes,
+        usedMinutes: usedMinutes,
+        remainingMinutes: remainingMinutes,
+        isPremium: isPremium,
+        streakDays: streakDays,
+        dialogue: dialogue,
+        selectedAppPackage: selectedAppPackage,
+        selectedAppName: selectedAppName,
+      );
+      return;
+    }
+
+    _debounceTimer?.cancel();
+    _debounceTimer = Timer(const Duration(milliseconds: 1500), () async {
+      await _writeWidgetData(
+        steps: steps,
+        stepGoal: stepGoal,
+        earnedMinutes: earnedMinutes,
+        usedMinutes: usedMinutes,
+        remainingMinutes: remainingMinutes,
+        isPremium: isPremium,
+        streakDays: streakDays,
+        dialogue: dialogue,
+        selectedAppPackage: selectedAppPackage,
+        selectedAppName: selectedAppName,
+      );
+    });
+  }
+
+  Future<void> _writeWidgetData({
+    required int steps,
+    required int stepGoal,
+    required int earnedMinutes,
+    required int usedMinutes,
+    required int remainingMinutes,
+    required bool isPremium,
+    int streakDays = 1,
+    String? dialogue,
     String? selectedAppPackage,
     String? selectedAppName,
   }) async {
-    if (kIsWeb) return;
 
     try {
       final formattedSteps = _formatNumber(steps);
@@ -48,6 +102,11 @@ class WidgetService {
       await HomeWidget.saveWidgetData<int>('fravo_step_progress', stepProgressPercent);
       await HomeWidget.saveWidgetData<int>('fravo_time_progress', remainingProgressPercent);
       await HomeWidget.saveWidgetData<bool>('fravo_is_premium', isPremium);
+      await HomeWidget.saveWidgetData<int>('fravo_streak_days', streakDays);
+      await HomeWidget.saveWidgetData<String>(
+        'fravo_companion_dialogue',
+        dialogue ?? '🌱 A gentle stroll will awaken your screen time!',
+      );
       
       await HomeWidget.saveWidgetData<String>(
         'fravo_selected_app_package',

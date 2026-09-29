@@ -4,12 +4,9 @@ import 'package:intl/intl.dart';
 
 import 'paywall_screen.dart';
 import 'pet_screen.dart';
-import 'settings_screen.dart';
-import 'stats_screen.dart';
 import '../services/admob_service.dart';
 import '../services/blocker_service.dart';
 import '../services/companion_service.dart';
-import '../services/growth_service.dart';
 import '../services/health_service.dart';
 import '../services/onesignal_service.dart';
 import '../services/revenuecat_service.dart';
@@ -31,13 +28,18 @@ class FravoDashboard extends StatefulWidget {
 }
 
 class _FravoDashboardState extends State<FravoDashboard>
-    with WidgetsBindingObserver {
+    with WidgetsBindingObserver, AutomaticKeepAliveClientMixin {
+  @override
+  bool get wantKeepAlive => true;
+
   final _timeBank = TimeBankService.instance;
   final _healthService = HealthService.instance;
   final _blockerService = BlockerService.instance;
 
   String? _statusMessage;
   Timer? _usageTimer;
+  Timer? _countdownTimer;
+  bool _isRefreshing = false;
 
   final ValueNotifier<int> _secondsRemainingNotifier = ValueNotifier<int>(0);
   int _localRemainingSeconds = 0;
@@ -66,32 +68,6 @@ class _FravoDashboardState extends State<FravoDashboard>
     WidgetsBinding.instance.addObserver(this);
 
     OneSignalService.instance.setScreenTrigger('dashboard');
-
-    // Handle deep link routing
-    OneSignalService.instance.onDeepLinkTriggered = (targetScreen) {
-      if (!mounted) return;
-      switch (targetScreen) {
-        case 'paywall':
-          Navigator.push(
-            context,
-            MaterialPageRoute(builder: (_) => const PaywallScreen(source: 'deep_link')),
-          );
-          break;
-        case 'settings':
-          _openSettings();
-          break;
-        case 'stats':
-          Navigator.push(
-            context,
-            MaterialPageRoute(builder: (_) => const StatsScreen()),
-          );
-          break;
-        case 'referral':
-        case 'invite':
-          GrowthService.instance.shareReferralInvite();
-          break;
-      }
-    };
 
     WidgetsBinding.instance.addPostFrameCallback((_) async {
       await _refresh();
@@ -172,6 +148,7 @@ class _FravoDashboardState extends State<FravoDashboard>
   void dispose() {
     WidgetsBinding.instance.removeObserver(this);
     _usageTimer?.cancel();
+    _countdownTimer?.cancel();
     _secondsRemainingNotifier.dispose();
     super.dispose();
   }
@@ -185,11 +162,16 @@ class _FravoDashboardState extends State<FravoDashboard>
         state == AppLifecycleState.detached) {
       _usageTimer?.cancel();
       _usageTimer = null;
+      _countdownTimer?.cancel();
+      _countdownTimer = null;
     }
   }
 
   Future<void> _checkPermissions() async {
     final status = await _blockerService.checkPermissionsStatus();
+    if (status['activityRecognition'] == true) {
+      await _healthService.initPedometerListener();
+    }
     if (mounted) {
       setState(() {
         _permissionsCache = status;
@@ -197,20 +179,59 @@ class _FravoDashboardState extends State<FravoDashboard>
     }
   }
 
+  /// 1 Hz countdown timer ticking down the live seconds displayed in the hero card.
+  void _startCountdown() {
+    _countdownTimer?.cancel();
+    if (_secondsRemainingNotifier.value <= 0) return;
+
+    _countdownTimer = Timer.periodic(const Duration(seconds: 1), (_) {
+      if (!mounted) {
+        _countdownTimer?.cancel();
+        return;
+      }
+      final current = _secondsRemainingNotifier.value;
+      if (current > 0) {
+        final next = current - 1;
+        _secondsRemainingNotifier.value = next;
+        _localRemainingSeconds = next;
+      } else {
+        _countdownTimer?.cancel();
+        _countdownTimer = null;
+        // Hit zero locally — trigger authoritative refresh to enforce blocking
+        _pullUsageAndRefresh();
+      }
+    });
+  }
+
   Future<void> _pullUsageAndRefresh() async {
-    final steps = await _healthService.fetchTodaySteps();
-    if (steps > 0) {
+    if (_isRefreshing) return;
+    _isRefreshing = true;
+
+    try {
+      // 0. Ensure day reset occurs before fetching/updating today's steps
+      await _timeBank.resetDailyIfNeeded();
+
+      final steps = await _healthService.fetchTodaySteps();
       await _timeBank.updateSteps(steps);
-    }
 
-    await _blockerService.evaluateBlockState();
+      await _blockerService.evaluateBlockState();
 
-    final newRemaining = _timeBank.remainingScreenTimeSeconds;
-    _secondsRemainingNotifier.value = newRemaining;
-    if (mounted && _localRemainingSeconds != newRemaining) {
-      setState(() {
-        _localRemainingSeconds = newRemaining;
-      });
+      final newRemaining = _timeBank.remainingScreenTimeSeconds;
+      _secondsRemainingNotifier.value = newRemaining;
+      if (mounted && _localRemainingSeconds != newRemaining) {
+        setState(() {
+          _localRemainingSeconds = newRemaining;
+        });
+      }
+
+      if (newRemaining > 0) {
+        _startCountdown();
+      } else {
+        _countdownTimer?.cancel();
+        _countdownTimer = null;
+      }
+    } finally {
+      _isRefreshing = false;
     }
   }
 
@@ -224,6 +245,7 @@ class _FravoDashboardState extends State<FravoDashboard>
   }
 
   Future<void> _refresh() async {
+    await _timeBank.resetDailyIfNeeded();
     await _pullUsageAndRefresh();
     await _checkPermissions();
   }
@@ -251,38 +273,20 @@ class _FravoDashboardState extends State<FravoDashboard>
     );
   }
 
-  void _openSettings() {
-    Navigator.push(
-      context,
-      MaterialPageRoute<void>(
-        builder: (_) => SettingsScreen(
-          timeBank: _timeBank,
-          blockerService: _blockerService,
-          healthService: _healthService,
-          onManageApps: () {
-            Navigator.pop(context);
-            _openAppSelector();
-          },
-        ),
-      ),
-    ).then((_) {
-      if (mounted) _refresh();
-    });
-  }
+
 
   Future<void> _showEmergencySnooze() async {
+    final companion = CompanionService.instance;
     final isPremium = RevenueCatService.instance.isPremium;
     final maxPasses = _timeBank.maxAllowedEmergencyPasses;
     final usedToday = _timeBank.emergencyPassCountToday;
 
     if (!_timeBank.canUseEmergencyPass) {
-      final msg = isPremium
-          ? 'You have used all 3 Emergency Passes today. Resets at midnight!'
-          : 'You have used your 1 Emergency Pass today. Upgrade to Pro for 3 daily passes!';
+      final msg = companion.getEmergencyLimitReachedDialogue(isPremium: isPremium);
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
           content: Text(msg),
-          backgroundColor: const Color(0xFFEF4444),
+          backgroundColor: const Color(0xFF10B981),
           behavior: SnackBarBehavior.floating,
           shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
         ),
@@ -293,58 +297,77 @@ class _FravoDashboardState extends State<FravoDashboard>
     showDialog(
       context: context,
       builder: (ctx) => AlertDialog(
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(24)),
-        title: const Row(
-          children: [
-            Icon(Icons.timer_outlined, color: Color(0xFFEF4444), size: 22),
-            SizedBox(width: 8),
-            Text(
-              'Emergency 3-Min Pass',
-              style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16),
-            ),
-          ],
-        ),
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(28)),
+        contentPadding: const EdgeInsets.fromLTRB(22, 22, 22, 16),
         content: Column(
           mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.start,
           children: [
+            PippyAvatarWidget(
+              size: 64,
+              mood: PippyMood.celebrate,
+              aura: companion.aura,
+              accessory: companion.accessory,
+              streakDays: companion.currentStreak,
+            ),
+            const SizedBox(height: 12),
             Text(
-              isPremium ? 'Pro Pass (${usedToday + 1}/$maxPasses Today)' : 'Free Pass (1/1 Today)',
+              "${companion.name}'s Quick 3-Min Boost ✨",
               style: const TextStyle(
-                fontWeight: FontWeight.bold,
-                fontSize: 14,
-                color: Color(0xFF1A202C),
+                fontWeight: FontWeight.w900,
+                fontSize: 17,
+                fontFamily: 'Outfit',
+                color: Color(0xFF1E293B),
               ),
+              textAlign: TextAlign.center,
             ),
             const SizedBox(height: 8),
+            Container(
+              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 5),
+              decoration: BoxDecoration(
+                color: const Color(0xFF10B981).withValues(alpha: 0.12),
+                borderRadius: BorderRadius.circular(10),
+              ),
+              child: Text(
+                '⚡ Boost ${usedToday + 1} of $maxPasses Available Today',
+                style: const TextStyle(
+                  fontSize: 11.5,
+                  fontWeight: FontWeight.bold,
+                  color: Color(0xFF047857),
+                ),
+              ),
+            ),
+            const SizedBox(height: 12),
             Text(
-              isPremium
-                  ? 'Premium Pro users get 3 Emergency Passes per day by watching a short video ad. Instantly unlocks 3 minutes of screen time.'
-                  : 'Free users get 1 Emergency Pass per day by watching a short video ad.',
+              companion.getEmergencyBoostDialogue(),
+              textAlign: TextAlign.center,
               style: const TextStyle(
-                fontSize: 13,
-                color: Color(0xFF4B5563),
-                height: 1.5,
+                fontSize: 12.5,
+                color: Color(0xFF475569),
+                height: 1.4,
               ),
             ),
           ],
         ),
+        actionsAlignment: MainAxisAlignment.spaceBetween,
         actions: [
           TextButton(
             onPressed: () => Navigator.pop(ctx),
-            child: const Text('Cancel'),
+            child: const Text('Maybe later', style: TextStyle(color: Color(0xFF94A3B8))),
           ),
           FilledButton.icon(
             style: FilledButton.styleFrom(
-              backgroundColor: isPremium ? const Color(0xFF10B981) : const Color(0xFF3B82F6),
+              backgroundColor: const Color(0xFF10B981),
+              foregroundColor: Colors.white,
+              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
               shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
+              elevation: 0,
             ),
             onPressed: () {
               Navigator.pop(ctx);
               _handleWatchAdForPass(isPremium);
             },
             icon: const Icon(Icons.play_circle_fill_rounded, size: 18),
-            label: const Text('Watch Ad to Unlock'),
+            label: const Text('Watch & Unlock ✨', style: TextStyle(fontWeight: FontWeight.bold)),
           ),
         ],
       ),
@@ -396,6 +419,7 @@ class _FravoDashboardState extends State<FravoDashboard>
 
   @override
   Widget build(BuildContext context) {
+    super.build(context);
     final remaining = _timeBank.remainingScreenTime;
     final totalSteps = _timeBank.totalStepsWalked;
     final earned = _timeBank.earnedMinutes;
@@ -649,43 +673,52 @@ class _FravoDashboardState extends State<FravoDashboard>
                     Row(
                       mainAxisAlignment: MainAxisAlignment.spaceBetween,
                       children: [
-                        Row(
-                          children: [
-                            Text(
-                              companion.name,
-                              style: const TextStyle(
-                                color: Color(0xFF1A202C),
-                                fontSize: 16,
-                                fontWeight: FontWeight.bold,
-                                fontFamily: 'Outfit',
-                              ),
-                            ),
-                            const SizedBox(width: 6),
-                            Container(
-                              padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 2),
-                              decoration: BoxDecoration(
-                                color: companion.hasActiveStreakEffect
-                                    ? const Color(0xFFF59E0B).withValues(alpha: 0.2)
-                                    : Colors.white.withValues(alpha: 0.7),
-                                borderRadius: BorderRadius.circular(10),
-                                border: companion.hasActiveStreakEffect
-                                    ? Border.all(color: const Color(0xFFF59E0B).withValues(alpha: 0.4))
-                                    : null,
-                              ),
-                              child: Text(
-                                companion.hasActiveStreakEffect
-                                    ? '${companion.streakTier.levelLabel} ${companion.streakTier.title.split(' ')[0]}'
-                                    : 'Lvl 1 🌱',
-                                style: TextStyle(
-                                  color: companion.hasActiveStreakEffect
-                                      ? const Color(0xFFD97706)
-                                      : companion.aura.deepColor,
-                                  fontSize: 10,
-                                  fontWeight: FontWeight.bold,
+                        InkWell(
+                          onTap: () => _showRenameCompanionDialog(context),
+                          borderRadius: BorderRadius.circular(8),
+                          child: Padding(
+                            padding: const EdgeInsets.symmetric(vertical: 2),
+                            child: Row(
+                              children: [
+                                Text(
+                                  companion.name,
+                                  style: const TextStyle(
+                                    color: Color(0xFF1A202C),
+                                    fontSize: 16,
+                                    fontWeight: FontWeight.bold,
+                                    fontFamily: 'Outfit',
+                                  ),
                                 ),
-                              ),
+                                const SizedBox(width: 4),
+                                const Icon(Icons.edit_rounded, size: 12, color: Color(0xFF10B981)),
+                                const SizedBox(width: 6),
+                                Container(
+                                  padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 2),
+                                  decoration: BoxDecoration(
+                                    color: companion.hasActiveStreakEffect
+                                        ? const Color(0xFFF59E0B).withValues(alpha: 0.2)
+                                        : Colors.white.withValues(alpha: 0.7),
+                                    borderRadius: BorderRadius.circular(10),
+                                    border: companion.hasActiveStreakEffect
+                                        ? Border.all(color: const Color(0xFFF59E0B).withValues(alpha: 0.4))
+                                        : null,
+                                  ),
+                                  child: Text(
+                                    companion.hasActiveStreakEffect
+                                        ? '${companion.streakTier.levelLabel} ${companion.streakTier.title.split(' ')[0]}'
+                                        : 'Lvl 1 🌱',
+                                    style: TextStyle(
+                                      color: companion.hasActiveStreakEffect
+                                          ? const Color(0xFFD97706)
+                                          : companion.aura.deepColor,
+                                      fontSize: 10,
+                                      fontWeight: FontWeight.bold,
+                                    ),
+                                  ),
+                                ),
+                              ],
                             ),
-                          ],
+                          ),
                         ),
                         InkWell(
                           onTap: () {
@@ -749,5 +782,87 @@ class _FravoDashboardState extends State<FravoDashboard>
         );
       },
     );
+  }
+
+  Future<void> _showRenameCompanionDialog(BuildContext context) async {
+    final companion = CompanionService.instance;
+    final controller = TextEditingController(text: companion.name);
+    final newName = await showDialog<String>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(24)),
+        title: Row(
+          children: [
+            Container(
+              padding: const EdgeInsets.all(6),
+              decoration: BoxDecoration(
+                color: const Color(0xFFDCFCE7),
+                borderRadius: BorderRadius.circular(10),
+              ),
+              child: const Icon(Icons.edit_rounded, color: Color(0xFF10B981), size: 20),
+            ),
+            const SizedBox(width: 10),
+            const Text(
+              'Rename Companion',
+              style: TextStyle(fontWeight: FontWeight.bold, fontSize: 17),
+            ),
+          ],
+        ),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            const Text(
+              'Give your walking companion a custom name:',
+              style: TextStyle(fontSize: 13, color: Color(0xFF64748B)),
+            ),
+            const SizedBox(height: 12),
+            TextField(
+              controller: controller,
+              autofocus: true,
+              textCapitalization: TextCapitalization.words,
+              decoration: InputDecoration(
+                hintText: 'e.g. Fravo, Pippy, Sparky',
+                filled: true,
+                fillColor: const Color(0xFFF8FAFC),
+                prefixIcon: const Icon(Icons.pets_rounded, color: Color(0xFF10B981)),
+                border: OutlineInputBorder(
+                  borderRadius: BorderRadius.circular(14),
+                  borderSide: const BorderSide(color: Color(0xFFE2E8F0)),
+                ),
+                focusedBorder: OutlineInputBorder(
+                  borderRadius: BorderRadius.circular(14),
+                  borderSide: const BorderSide(color: Color(0xFF10B981), width: 2),
+                ),
+              ),
+            ),
+          ],
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx),
+            child: const Text('Cancel'),
+          ),
+          ElevatedButton(
+            style: ElevatedButton.styleFrom(
+              backgroundColor: const Color(0xFF10B981),
+              foregroundColor: Colors.white,
+              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+            ),
+            onPressed: () {
+              final text = controller.text.trim();
+              if (text.isNotEmpty) {
+                Navigator.pop(ctx, text);
+              }
+            },
+            child: const Text('Save Name'),
+          ),
+        ],
+      ),
+    );
+
+    if (newName != null && newName.isNotEmpty) {
+      await companion.setName(newName);
+    }
   }
 }

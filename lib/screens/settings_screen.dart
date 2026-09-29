@@ -1,5 +1,7 @@
 import 'package:flutter/material.dart';
+import '../services/admob_service.dart';
 import '../services/blocker_service.dart';
+import '../services/companion_service.dart';
 import '../services/growth_service.dart';
 import '../services/health_service.dart';
 import '../services/onesignal_service.dart';
@@ -7,12 +9,13 @@ import '../services/revenuecat_service.dart';
 import '../services/time_bank.dart';
 import '../widgets/ambient_aurora_background.dart';
 import '../widgets/permission_status_tile.dart';
+import '../widgets/pippy_avatar_widget.dart';
 import '../widgets/premium_glass_system.dart';
 import '../widgets/referral_reward_card.dart';
 import 'paywall_screen.dart';
 
 /// App version — production release.
-const String kFravoAppVersion = '1.0.0';
+const String kFravoAppVersion = '1.0.2';
 
 enum PermissionKind {
   activity,
@@ -67,15 +70,139 @@ class _SettingsScreenState extends State<SettingsScreen> {
   }
 
   Future<void> _saveRewardRate() async {
-    await widget.timeBank.setMinutesPer1kSteps(_minutesPer1k);
-    await widget.blockerService.evaluateBlockState();
-    if (!mounted) return;
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-        content: const Text('Reward rate updated!'),
-        behavior: SnackBarBehavior.floating,
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+    // If rate has not changed compared to saved value in timeBank, do nothing
+    if (_minutesPer1k == widget.timeBank.minutesPer1kSteps) {
+      return;
+    }
+
+    // AdMob Policy: Rewarded ads must be opt-in with explicit disclosure of reward
+    final confirmed = await showDialog<bool>(
+      context: context,
+      barrierDismissible: false,
+      builder: (ctx) => AlertDialog(
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(24)),
+        title: const Row(
+          children: [
+            Icon(Icons.tune_rounded, color: Color(0xFF10B981), size: 24),
+            SizedBox(width: 8),
+            Text(
+              'Update Reward Rate',
+              style: TextStyle(fontWeight: FontWeight.bold, fontSize: 18),
+            ),
+          ],
+        ),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              'Change your step-to-time ratio to $_minutesPer1k minutes per 1,000 steps?',
+              style: const TextStyle(fontSize: 14, color: Color(0xFF1E293B)),
+            ),
+            const SizedBox(height: 12),
+            Container(
+              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+              decoration: BoxDecoration(
+                color: const Color(0xFF10B981).withValues(alpha: 0.10),
+                borderRadius: BorderRadius.circular(10),
+              ),
+              child: const Row(
+                children: [
+                  Icon(
+                    Icons.play_circle_fill_rounded,
+                    color: Color(0xFF047857),
+                    size: 18,
+                  ),
+                  SizedBox(width: 8),
+                  Expanded(
+                    child: Text(
+                      'Watch a short video ad to apply and save this new rate.',
+                      style: TextStyle(
+                        fontSize: 12,
+                        fontWeight: FontWeight.w600,
+                        color: Color(0xFF047857),
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ],
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, false),
+            child: const Text('Cancel', style: TextStyle(color: Color(0xFF94A3B8))),
+          ),
+          FilledButton.icon(
+            style: FilledButton.styleFrom(
+              backgroundColor: const Color(0xFF10B981),
+              foregroundColor: Colors.white,
+              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+            ),
+            onPressed: () => Navigator.pop(ctx, true),
+            icon: const Icon(Icons.play_circle_fill_rounded, size: 18),
+            label: const Text('Watch & Save', style: TextStyle(fontWeight: FontWeight.bold)),
+          ),
+        ],
       ),
+    );
+
+    if (confirmed != true) {
+      if (mounted) {
+        setState(() {
+          _minutesPer1k = widget.timeBank.minutesPer1kSteps;
+        });
+      }
+      return;
+    }
+
+    bool rewardEarned = false;
+    AdMobService.instance.showRewardRateChangeRewardedAd(
+      onRewardEarned: () async {
+        rewardEarned = true;
+        await widget.timeBank.setMinutesPer1kSteps(_minutesPer1k);
+        await widget.blockerService.evaluateBlockState();
+        if (!mounted) return;
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Reward rate updated to $_minutesPer1k min / 1k steps!'),
+            backgroundColor: const Color(0xFF10B981),
+            behavior: SnackBarBehavior.floating,
+            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+          ),
+        );
+      },
+      onAdDismissed: () {
+        if (!rewardEarned && mounted) {
+          setState(() {
+            _minutesPer1k = widget.timeBank.minutesPer1kSteps;
+          });
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: const Text('Ad was closed early. Reward rate was not updated.'),
+              backgroundColor: const Color(0xFFEF4444),
+              behavior: SnackBarBehavior.floating,
+              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+            ),
+          );
+        }
+      },
+      onAdFailed: () {
+        if (mounted) {
+          setState(() {
+            _minutesPer1k = widget.timeBank.minutesPer1kSteps;
+          });
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: const Text('Ad is loading or unavailable. Please check your connection and try again.'),
+              backgroundColor: const Color(0xFFEF4444),
+              behavior: SnackBarBehavior.floating,
+              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+            ),
+          );
+        }
+      },
     );
   }
 
@@ -127,34 +254,58 @@ class _SettingsScreenState extends State<SettingsScreen> {
   }
 
   void _showProRateLockDialog() {
+    final companion = CompanionService.instance;
     showDialog(
       context: context,
       builder: (ctx) => AlertDialog(
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(24)),
-        title: const Row(
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(28)),
+        contentPadding: const EdgeInsets.fromLTRB(22, 22, 22, 16),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
           children: [
-            Icon(Icons.lock_rounded, color: Color(0xFFF59E0B), size: 24),
-            SizedBox(width: 8),
+            PippyAvatarWidget(
+              size: 60,
+              mood: PippyMood.celebrate,
+              aura: companion.aura,
+              accessory: companion.accessory,
+              streakDays: companion.currentStreak,
+            ),
+            const SizedBox(height: 12),
+            const Text(
+              'Custom Strict Rates with Pro 🎯',
+              style: TextStyle(
+                fontWeight: FontWeight.w900,
+                fontSize: 16.5,
+                fontFamily: 'Outfit',
+                color: Color(0xFF1E293B),
+              ),
+              textAlign: TextAlign.center,
+            ),
+            const SizedBox(height: 8),
             Text(
-              'Strict Rates are Pro',
-              style: TextStyle(fontWeight: FontWeight.bold, fontSize: 17),
+              companion.getStrictRateLockDialogue(),
+              textAlign: TextAlign.center,
+              style: const TextStyle(
+                fontSize: 12.5,
+                color: Color(0xFF475569),
+                height: 1.4,
+              ),
             ),
           ],
         ),
-        content: const Text(
-          'Strict reward rates (5–20 min / 1,000 steps) require Fravo Pro.\n\nFree tier includes 25–60 min / 1k steps.',
-          style: TextStyle(fontSize: 13, color: Color(0xFF4B5563), height: 1.4),
-        ),
+        actionsAlignment: MainAxisAlignment.spaceBetween,
         actions: [
           TextButton(
             onPressed: () => Navigator.pop(ctx),
-            child: const Text('Got it'),
+            child: const Text('Maybe later', style: TextStyle(color: Color(0xFF94A3B8))),
           ),
-          ElevatedButton(
-            style: ElevatedButton.styleFrom(
+          FilledButton.icon(
+            style: FilledButton.styleFrom(
               backgroundColor: const Color(0xFF10B981),
               foregroundColor: Colors.white,
-              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
+              elevation: 0,
             ),
             onPressed: () {
               Navigator.pop(ctx);
@@ -165,7 +316,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
                 ),
               );
             },
-            child: const Text('Unlock Pro'),
+            icon: const Icon(Icons.star_rounded, size: 18),
+            label: const Text('Unlock Pro ⭐', style: TextStyle(fontWeight: FontWeight.bold)),
           ),
         ],
       ),
@@ -175,15 +327,111 @@ class _SettingsScreenState extends State<SettingsScreen> {
   Future<void> _requestPermission(PermissionKind kind) async {
     switch (kind) {
       case PermissionKind.activity:
-        await widget.healthService.requestActivityRecognitionPermission();
+        await widget.healthService.requestPermissions();
+        break;
       case PermissionKind.accessibility:
-        await widget.blockerService.requestAccessibilityPermission();
+        if (_permissions['accessibility'] != true) {
+          await _showAccessibilityGuideDialog();
+        } else {
+          await widget.blockerService.requestAccessibilityPermission();
+        }
+        break;
       case PermissionKind.overlay:
         await widget.blockerService.requestOverlayPermission();
+        break;
       case PermissionKind.notification:
         await widget.blockerService.requestAllPermissions(context);
+        break;
     }
     await _reloadPermissions();
+  }
+
+  Future<void> _showAccessibilityGuideDialog() async {
+    final companion = CompanionService.instance;
+    await showDialog(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(24)),
+        contentPadding: const EdgeInsets.fromLTRB(20, 20, 20, 16),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            PippyAvatarWidget(
+              size: 64,
+              mood: PippyMood.alert,
+              aura: companion.aura,
+              accessory: companion.accessory,
+              streakDays: companion.currentStreak,
+            ),
+            const SizedBox(height: 12),
+            const Text(
+              'Enable Fravo Blocker Engine',
+              style: TextStyle(
+                fontSize: 17,
+                fontWeight: FontWeight.bold,
+                fontFamily: 'Outfit',
+                color: Color(0xFF0F172A),
+              ),
+              textAlign: TextAlign.center,
+            ),
+            const SizedBox(height: 8),
+            Container(
+              padding: const EdgeInsets.all(12),
+              decoration: BoxDecoration(
+                color: const Color(0xFFF0FDF4),
+                borderRadius: BorderRadius.circular(14),
+                border: Border.all(color: const Color(0xFF10B981).withValues(alpha: 0.3)),
+              ),
+              child: const Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    '1. In Settings, tap "Downloaded apps" / "Installed services"',
+                    style: TextStyle(fontSize: 12, color: Color(0xFF334155), height: 1.3),
+                  ),
+                  SizedBox(height: 6),
+                  Row(
+                    children: [
+                      Text(
+                        '2. Select ',
+                        style: TextStyle(fontSize: 12, color: Color(0xFF334155)),
+                      ),
+                      Text(
+                        'Fravo App Blocker Engine',
+                        style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: Color(0xFF059669)),
+                      ),
+                    ],
+                  ),
+                  SizedBox(height: 6),
+                  Text(
+                    '3. Toggle switch ON & tap Allow',
+                    style: TextStyle(fontSize: 12, color: Color(0xFF334155), height: 1.3),
+                  ),
+                ],
+              ),
+            ),
+          ],
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx),
+            child: const Text('Cancel'),
+          ),
+          ElevatedButton(
+            style: ElevatedButton.styleFrom(
+              backgroundColor: const Color(0xFF10B981),
+              foregroundColor: Colors.white,
+              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+            ),
+            onPressed: () async {
+              Navigator.pop(ctx);
+              await widget.blockerService.requestAccessibilityPermission();
+            },
+            child: const Text('Open Settings ⚙️'),
+          ),
+        ],
+      ),
+    );
   }
 
   @override

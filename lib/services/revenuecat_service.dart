@@ -1,4 +1,5 @@
 import 'package:flutter/foundation.dart';
+import 'package:flutter/services.dart';
 import 'package:hive_flutter/hive_flutter.dart';
 import 'package:purchases_flutter/purchases_flutter.dart';
 import 'package:sentry_flutter/sentry_flutter.dart';
@@ -52,13 +53,14 @@ class RevenueCatService {
     }
   }
 
-  /// Combined status: true if user has a purchased subscription OR an active 7-day trial OR cached premium in Hive.
+  /// Combined status: true if user has a purchased subscription OR an active 7-day trial OR cached purchased premium in Hive.
   /// If the 7-day trial expires and no subscription is purchased, automatically resets to false (Free).
   bool get isPremium {
     if (_isPurchasedActive || isReferralTrialActive) return true;
     try {
       final box = Hive.box('time_bank');
-      return (box.get(_hiveKey, defaultValue: false) as bool) || isReferralTrialActive;
+      final cachedPurchased = (box.get(_hiveKey, defaultValue: false) as bool);
+      return cachedPurchased || isReferralTrialActive;
     } catch (_) {
       return false;
     }
@@ -70,9 +72,6 @@ class RevenueCatService {
       final box = Hive.box('time_bank');
       final expiryMs = DateTime.now().add(const Duration(days: 7)).millisecondsSinceEpoch;
       await box.put(_referralTrialExpiryKey, expiryMs);
-      await box.put(_hiveKey, true);
-      _isPurchasedActive = true;
-      isPremiumNotifier.value = true;
       _recalculateAndNotify();
     } catch (e) {
       if (kDebugMode) {
@@ -162,10 +161,10 @@ class RevenueCatService {
     final effectivePremium = isPremium;
     isPremiumNotifier.value = effectivePremium;
 
-    // Cache in Hive
+    // Cache purchased subscription in Hive
     try {
       final box = Hive.box('time_bank');
-      box.put(_hiveKey, effectivePremium);
+      box.put(_hiveKey, _isPurchasedActive);
     } catch (_) {}
 
     AnalyticsService.instance.setUserProperties(isPremium: effectivePremium);
@@ -183,6 +182,21 @@ class RevenueCatService {
     if (!_initialized) return null;
     try {
       return await Purchases.getOfferings();
+    } on PlatformException catch (pe) {
+      final code = pe.code;
+      final msg = pe.message?.toLowerCase() ?? '';
+      final isBillingRestricted = code == '3' ||
+          code == '5' ||
+          msg.contains('not allowed') ||
+          msg.contains('not supported') ||
+          msg.contains('billing_unavailable');
+      if (!isBillingRestricted) {
+        await Sentry.captureException(
+          pe,
+          withScope: (scope) => scope.setTag('feature', 'revenuecat_offerings'),
+        );
+      }
+      return null;
     } catch (e, stackTrace) {
       await Sentry.captureException(
         e,
@@ -196,7 +210,7 @@ class RevenueCatService {
   /// Purchase a package (Monthly, Yearly, Lifetime, etc.) with strict Server-Side verification.
   Future<bool> purchasePackage(Package package) async {
     try {
-      final result = await Purchases.purchasePackage(package);
+      final result = await Purchases.purchase(PurchaseParams.package(package));
       
       // Update entitlement directly from the server-validated response
       _updateEntitlementStatus(result.customerInfo);

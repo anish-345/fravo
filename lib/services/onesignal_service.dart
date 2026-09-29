@@ -59,8 +59,8 @@ class OneSignalService {
         event.notification.display();
       });
 
-      // Auto-prompt for push notification permission on Android 13+ & iOS
-      await requestNotificationPermission();
+      // Notification permissions are requested progressively during onboarding or in settings
+      // rather than popping up a system dialog before the app UI even renders.
 
       _initialized = true;
       if (kDebugMode) {

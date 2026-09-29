@@ -26,6 +26,9 @@ class BlockerService {
   /// every time the selector sheet opens. Invalidated after [_cacheTtl].
   static List<Map<String, dynamic>>? _appCache;
   static DateTime? _appCacheTimestamp;
+  static List<AppInfo>? _cachedSelectableApps;
+  static DateTime? _selectableAppsTimestamp;
+  static DateTime? _lastSilentRefresh;
   static const Duration _cacheTtl = Duration(hours: 1);
 
   // ── Lifecycle ─────────────────────────────────────────────────────────────
@@ -33,10 +36,16 @@ class BlockerService {
   /// Initialises the blocker. Safe to call at startup — errors are caught.
   Future<void> initialize() async {
     // Wire the daily-reset callback so the earned-minutes guard is cleared
-    // whenever TimeBankService.resetDailyIfNeeded() triggers a new-day reset.
-    TimeBankService.instance.setDailyResetCallback(resetLastSetEarned);
+    // and block state is immediately re-evaluated to enforce blocking on a new day.
+    TimeBankService.instance.setDailyResetCallback(() {
+      resetLastSetEarned();
+      evaluateBlockState(forceRearm: true);
+    });
     // Wire the blocked-apps-changed callback to clear native trip-wire record.
-    TimeBankService.instance.setBlockedAppsChangedCallback(resetLastSetEarned);
+    TimeBankService.instance.setBlockedAppsChangedCallback(() {
+      resetLastSetEarned();
+      evaluateBlockState(forceRearm: true);
+    });
 
     if (!Platform.isAndroid) return;
     try {
@@ -236,6 +245,12 @@ class BlockerService {
   ///   After each call the native counter resets to 0, so we also zero our
   ///   stored baseline via [TimeBankService.resetNativeBaseline].
   Future<void> evaluateBlockState({bool forceRearm = false}) async {
+    // ── Step 0: daily reset check ───────────────────────────────────────────
+    // Run this here (not only on app open) so a midnight crossing that
+    // happens while the app is backgrounded is caught on the next enforcement
+    // cycle. Runs across all platforms/tests.
+    await TimeBankService.instance.resetDailyIfNeeded();
+
     if (!Platform.isAndroid) return;
     if (_isEvaluating) {
       debugPrint('BlockerService: skipped — already evaluating.');
@@ -243,12 +258,6 @@ class BlockerService {
     }
     _isEvaluating = true;
     try {
-      // ── Step 0: daily reset check ───────────────────────────────────────────
-      // Run this here (not only on app open) so a midnight crossing that
-      // happens while the app is backgrounded is caught on the next enforcement
-      // cycle driven by the native service.
-      await TimeBankService.instance.resetDailyIfNeeded();
-
       // ── Step 1: sync native usage → update usedMinutes in Hive ─────────────
       await syncUsageFromNative();
 
@@ -473,12 +482,20 @@ class BlockerService {
     }
   }
 
-  /// Silently refreshes the apps list in the background without blocking the UI
+  /// Silently refreshes the apps list in the background without blocking the UI.
+  /// Rate-limited to at most once every 5 minutes.
   void _refreshAppCacheSilently() {
+    final now = DateTime.now();
+    if (_lastSilentRefresh != null &&
+        now.difference(_lastSilentRefresh!) < const Duration(minutes: 5)) {
+      return;
+    }
+    _lastSilentRefresh = now;
     _blocker.getApps().then((freshApps) async {
       if (freshApps.isNotEmpty) {
         _appCache = freshApps;
         _appCacheTimestamp = DateTime.now();
+        _cachedSelectableApps = null;
         try {
           final box = await Hive.openBox('time_bank');
           await box.put(_appCacheHiveKey, jsonEncode(freshApps));
@@ -487,10 +504,57 @@ class BlockerService {
     }).catchError((_) {});
   }
 
+  /// Returns cached selectable apps merged with common presets.
+  Future<List<AppInfo>> getSelectableApps({bool forceRefresh = false}) async {
+    final now = DateTime.now();
+    if (!forceRefresh &&
+        _cachedSelectableApps != null &&
+        _cachedSelectableApps!.isNotEmpty &&
+        _selectableAppsTimestamp != null &&
+        now.difference(_selectableAppsTimestamp!) < _cacheTtl) {
+      return _cachedSelectableApps!;
+    }
+
+    final rawApps = await getInstalledApps(forceRefresh: forceRefresh);
+    final List<AppInfo> apps = [];
+    final seen = <String>{};
+
+    for (final raw in rawApps) {
+      try {
+        final app = AppInfo.fromMap(raw);
+        if (app.packageName.isNotEmpty && app.appName.isNotEmpty) {
+          seen.add(app.packageName);
+          apps.add(app);
+        }
+      } catch (_) {}
+    }
+
+    for (final preset in CommonApps.presets) {
+      if (!seen.contains(preset.packageName)) {
+        apps.add(
+          AppInfo(
+            appName: preset.name,
+            packageName: preset.packageName,
+          ),
+        );
+      }
+    }
+
+    apps.sort(
+      (a, b) => a.appName.toLowerCase().compareTo(b.appName.toLowerCase()),
+    );
+
+    _cachedSelectableApps = apps;
+    _selectableAppsTimestamp = now;
+    return apps;
+  }
+
   /// Clears the in-memory and on-disk app list cache.
   Future<void> clearAppCache() async {
     _appCache = null;
     _appCacheTimestamp = null;
+    _cachedSelectableApps = null;
+    _selectableAppsTimestamp = null;
     try {
       final box = await Hive.openBox('time_bank');
       await box.delete(_appCacheHiveKey);
@@ -532,18 +596,7 @@ class BlockerService {
 @pragma('vm:entry-point')
 void onBlockScreenRequested() {
   ZoBlockScreenRunner.run(
-    builder: (blockCtx) {
-      return MaterialApp(
-        debugShowCheckedModeBanner: false,
-        // Light theme mirrors Android's native Digital Wellbeing pause screen
-        theme: ThemeData(
-          brightness: Brightness.light,
-          useMaterial3: true,
-          scaffoldBackgroundColor: const Color(0xFFF8F9FA),
-        ),
-        home: _BlockScreen(blockCtx: blockCtx),
-      );
-    },
+    builder: (blockCtx) => _BlockScreen(blockCtx: blockCtx),
   );
 }
 
@@ -585,6 +638,9 @@ class _BlockScreenState extends State<_BlockScreen>
     _loadSettings();
   }
 
+  static final Map<String, Uint8List> _blockerIconCache = {};
+  Uint8List? _cachedIcon;
+
   Future<void> _loadSettings() async {
     try {
       await Hive.initFlutter();
@@ -595,6 +651,22 @@ class _BlockScreenState extends State<_BlockScreen>
       final streak = (box.get('currentStreakDays') as int?) ?? 0;
 
       final isPremium = (box.get('is_premium_cached', defaultValue: false) as bool);
+
+      final pkg = widget.blockCtx.packageName as String?;
+      if (pkg != null) {
+        if (_blockerIconCache.containsKey(pkg)) {
+          _cachedIcon = _blockerIconCache[pkg];
+        } else {
+          final raw = box.get('icon_$pkg');
+          if (raw is Uint8List) {
+            _cachedIcon = raw;
+            _blockerIconCache[pkg] = raw;
+          } else if (raw is List) {
+            _cachedIcon = Uint8List.fromList(raw.cast<int>());
+            _blockerIconCache[pkg] = _cachedIcon!;
+          }
+        }
+      }
 
       final auraStr = box.get('companion_aura') as String?;
       CompanionAura aura = CompanionAura.mint;
@@ -644,18 +716,29 @@ class _BlockScreenState extends State<_BlockScreen>
   }
 
   static const _blockChannel = MethodChannel('zo_app_blocker_block_screen');
+  bool _isTransitioning = false;
 
   /// Sends the user home and dismisses the overlay via the native service.
   Future<void> _goHome() async {
+    if (_isTransitioning) return;
+    _isTransitioning = true;
     try {
+      ZoBlockScreenRunner.notifyDismissing();
       await _blockChannel.invokeMethod<void>('dismissBlockScreen');
     } catch (e) {
       debugPrint('_goHome dismiss error: $e');
+    } finally {
+      Future.delayed(const Duration(milliseconds: 1500), () {
+        if (mounted) _isTransitioning = false;
+      });
     }
   }
 
   Future<void> _openFravo() async {
+    if (_isTransitioning) return;
+    _isTransitioning = true;
     try {
+      ZoBlockScreenRunner.notifyDismissing();
       // 1. Direct native launch (dismisses overlay and brings Fravo to foreground)
       await _blockChannel.invokeMethod<void>('openParentApp');
     } catch (_) {
@@ -668,6 +751,10 @@ class _BlockScreenState extends State<_BlockScreen>
         debugPrint('_openFravo deep link error: $e');
         await _goHome();
       }
+    } finally {
+      Future.delayed(const Duration(milliseconds: 1500), () {
+        if (mounted) _isTransitioning = false;
+      });
     }
   }
 
@@ -684,10 +771,48 @@ class _BlockScreenState extends State<_BlockScreen>
     }
   }
 
+  String _resolveAppName(String? rawName, String? packageName) {
+    if (rawName != null && rawName.trim().isNotEmpty && rawName != 'This App') {
+      return rawName;
+    }
+    if (packageName != null && packageName.isNotEmpty) {
+      final segments = packageName.split('.');
+      for (final segment in segments.reversed) {
+        final lower = segment.toLowerCase();
+        if (lower.isNotEmpty &&
+            lower != 'android' &&
+            lower != 'app' &&
+            lower != 'apps' &&
+            lower != 'mobile' &&
+            lower != 'lite' &&
+            lower != 'client' &&
+            lower != 'main' &&
+            lower.length > 2) {
+          return segment[0].toUpperCase() + segment.substring(1);
+        }
+      }
+    }
+    return 'This App';
+  }
+
   @override
   Widget build(BuildContext context) {
-    final appName = widget.blockCtx.appName as String? ?? 'This App';
-    final appIcon = widget.blockCtx.appIcon as Uint8List?;
+    final rawName = widget.blockCtx.appName as String?;
+    final packageName = widget.blockCtx.packageName as String?;
+    final appName = _resolveAppName(rawName, packageName);
+
+    final incomingIcon = widget.blockCtx.appIcon as Uint8List?;
+    if (incomingIcon != null && packageName != null) {
+      if (_blockerIconCache[packageName] == null) {
+        _blockerIconCache[packageName] = incomingIcon;
+        Hive.openBox('time_bank')
+            .then((b) => b.put('icon_$packageName', incomingIcon))
+            .catchError((_) {});
+      }
+    }
+    final appIcon = incomingIcon ??
+        _cachedIcon ??
+        (packageName != null ? _blockerIconCache[packageName] : null);
 
     return Scaffold(
       backgroundColor: const Color(0xFFF8FAFC),

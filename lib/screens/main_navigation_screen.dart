@@ -1,5 +1,4 @@
 import 'package:flutter/material.dart';
-import '../services/admob_service.dart';
 import '../services/blocker_service.dart';
 import '../services/health_service.dart';
 import '../services/onesignal_service.dart';
@@ -38,7 +37,13 @@ class _MainNavigationScreenState extends State<MainNavigationScreen> {
     // Deep link router: maps all legacy & new URLs (fravo://paywall, fravo://stats, etc.)
     OneSignalService.instance.onDeepLinkTriggered = (target) {
       if (!mounted) return;
-      final clean = target.toLowerCase().replaceAll('fravo://', '').trim();
+      final clean = target
+          .toLowerCase()
+          .replaceAll('fravo://', '')
+          .split('?')
+          .first
+          .replaceAll('/', '')
+          .trim();
       switch (clean) {
         case 'stats':
         case 'analytics':
@@ -77,14 +82,12 @@ class _MainNavigationScreenState extends State<MainNavigationScreen> {
 
   @override
   void dispose() {
+    OneSignalService.instance.onDeepLinkTriggered = null;
     _pageController.dispose();
     super.dispose();
   }
 
   void _onTabSelected(int index) {
-    if (_currentIndex != index) {
-      AdMobService.instance.showTabSwitchRewardedInterstitial();
-    }
     setState(() => _currentIndex = index);
     _pageController.jumpToPage(index);
   }

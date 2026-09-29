@@ -1,6 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <color name="ic_launcher_background">#4A90E2</color>
+    <color name="ic_launcher_background">#DCFCE7</color>
     <color name="notification_icon_color">#4A90E2</color>
 
     <!-- Fravo Home Screen Widget Color Palette (Light Theme) -->

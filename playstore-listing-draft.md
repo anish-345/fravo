@@ -49,6 +49,12 @@ FEATURES THAT HELP YOU QUIT PHONE ADDICTION:
 • Live Screen Time Tracker: Updates your balance and app usage every 30 seconds to keep your habits honest.
 • Midnight Reset: A fresh start every day. Your steps and screen time balance reset at midnight to motivate you daily.
 
+ACCESSIBILITY SERVICE API DISCLOSURE:
+Fravo uses Android's AccessibilityService API to deliver its core app-blocking and screen-time enforcement features:
+• Purpose: With your explicit permission, the AccessibilityService API is used solely to detect when a user-selected restricted or blocked app is opened in the foreground, allowing Fravo to display the blocking overlay screen and prevent distractions when your earned screen time balance runs out.
+• Privacy Guarantee: Fravo does NOT collect, store, read, or transmit any sensitive user data, personal messages, screen content, or keystrokes. No data leaves your phone—all app detection and blocking happen 100% locally on your device.
+• User Control: Enabling this service is optional, requires explicit user consent, and can be disabled at any time in your device's Accessibility Settings.
+
 100% PRIVATE & SECURE:
 Your digital wellbeing is personal. Fravo runs entirely on-device:
 • No account setup required

@@ -21,7 +21,10 @@ class StatsScreen extends StatefulWidget {
 }
 
 class _StatsScreenState extends State<StatsScreen>
-    with TickerProviderStateMixin {
+    with TickerProviderStateMixin, AutomaticKeepAliveClientMixin {
+  @override
+  bool get wantKeepAlive => true;
+
   final _timeBank = TimeBankService.instance;
 
   /// Key for the hidden RepaintBoundary that renders the share card.
@@ -275,6 +278,7 @@ class _StatsScreenState extends State<StatsScreen>
 
   @override
   Widget build(BuildContext context) {
+    super.build(context);
     final steps = _timeBank.totalStepsWalked;
     final earned = _timeBank.earnedMinutes;
     final used = _timeBank.usedMinutes;

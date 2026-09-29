@@ -263,7 +263,7 @@ class _BlockingPermissionsSheetState extends State<BlockingPermissionsSheet>
   }
 
   Future<void> _requestActivityRecognition() async {
-    await HealthService.instance.requestActivityRecognitionPermission();
+    await HealthService.instance.requestPermissions();
   }
 }
 

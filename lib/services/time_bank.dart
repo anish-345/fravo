@@ -1,8 +1,10 @@
+import 'dart:async';
 import 'dart:convert';
 
 import 'package:flutter/foundation.dart';
 import 'package:hive_flutter/hive_flutter.dart';
 import 'package:zo_app_blocker/zo_app_blocker.dart';
+import 'companion_service.dart';
 import 'revenuecat_service.dart';
 import 'widget_service.dart';
 
@@ -105,16 +107,50 @@ class TimeBankService {
   /// re-arming the native OS timer every 5s cycle.
   static const String lastSetRemainingMinutesKey = 'lastSetRemainingMinutes';
 
-  Box<dynamic>? _box;
+  Box<dynamic>? _rawBox;
+
+  Box<dynamic>? get _box {
+    if (_rawBox != null && _rawBox!.isOpen) return _rawBox;
+    if (Hive.isBoxOpen(_boxName)) {
+      _rawBox = Hive.box(_boxName);
+      return _rawBox;
+    }
+    return null;
+  }
 
   // ── Initialisation ────────────────────────────────────────────────────────
 
+  /// Returns true if a daily reset is due (i.e. midnight has passed since last reset).
+  bool get isDailyResetDue {
+    final lastReset = _box?.get(_lastResetDayKey) as String?;
+    return lastReset != null && lastReset != _todayString;
+  }
+
+  Timer? _midnightTimer;
+
+  /// Schedules a one-shot timer for the next midnight (00:00:01) to automatically
+  /// roll over the day, archive history, zero stats, and re-arm blocking.
+  void _scheduleMidnightTimer() {
+    _midnightTimer?.cancel();
+    final now = DateTime.now();
+    final nextMidnight = DateTime(now.year, now.month, now.day + 1, 0, 0, 1);
+    final delay = nextMidnight.difference(now);
+
+    _midnightTimer = Timer(delay, () async {
+      debugPrint('TimeBankService: 🌙 Midnight timer triggered — executing daily reset.');
+      await resetDailyIfNeeded();
+      _scheduleMidnightTimer();
+    });
+  }
+
   Future<void> init() async {
     await Hive.initFlutter();
-    _box = await Hive.openBox(_boxName);
+    _rawBox = await Hive.openBox(_boxName);
     _migrateLegacySingleApp();
     validateDeviceClock();
+    await resetDailyIfNeeded();
     syncHomeWidget();
+    _scheduleMidnightTimer();
   }
 
   /// Synchronize current step count and time bank balance to Android/iOS home screen widget.
@@ -123,6 +159,13 @@ class TimeBankService {
     final selectedPkg = pkgs.isNotEmpty ? pkgs.first : 'com.instagram.android';
     final selectedName = displayNameFor(selectedPkg);
 
+    final streak = CompanionService.instance.currentStreak;
+    final dialogue = CompanionService.instance.getContextualDialogue(
+      stepsToday: totalStepsWalked,
+      remainingSeconds: remainingScreenTime * 60,
+      permissionsHealthy: true,
+    );
+
     WidgetService.instance.updateWidgetData(
       steps: totalStepsWalked,
       stepGoal: customStepGoal,
@@ -130,6 +173,8 @@ class TimeBankService {
       usedMinutes: usedMinutes,
       remainingMinutes: remainingScreenTime,
       isPremium: RevenueCatService.instance.isPremium,
+      streakDays: streak,
+      dialogue: dialogue,
       selectedAppPackage: selectedPkg,
       selectedAppName: selectedName,
     );
@@ -181,10 +226,14 @@ class TimeBankService {
 
   // ── Steps ─────────────────────────────────────────────────────────────────
 
-  int get totalStepsWalked => (_box?.get(_totalStepsKey) as num?)?.toInt() ?? 0;
+  int get totalStepsWalked {
+    if (isDailyResetDue) return 0;
+    return (_box?.get(_totalStepsKey) as num?)?.toInt() ?? 0;
+  }
 
   Future<void> updateSteps(int newTotalSteps) async {
     if (!validateDeviceClock()) return;
+    await resetDailyIfNeeded();
     final today = _todayString;
     final lastStepsDay = (_box?.get(_lastStepsDayKey) as String?) ?? today;
     // First update of the day (or after a reset) is trusted as-is — it may be
@@ -193,6 +242,7 @@ class TimeBankService {
     if (lastStepsDay != today || newTotalSteps > totalStepsWalked) {
       await _box?.put(_totalStepsKey, newTotalSteps);
       await _box?.put(_lastStepsDayKey, today);
+      _invalidateCalculatedCaches();
       syncHomeWidget();
     }
   }
@@ -220,60 +270,108 @@ class TimeBankService {
     return raw.clamp(5, 60);
   }
 
+  int? _cachedEarnedMinutes;
+  int? _cachedUsedSecondsTotal;
+  int? _cachedRemainingScreenTime;
+  int? _cachedRemainingScreenTimeSeconds;
+  Map<String, int>? _cachedPerAppUsedSeconds;
+
+  void _invalidateCalculatedCaches() {
+    _cachedEarnedMinutes = null;
+    _cachedUsedSecondsTotal = null;
+    _cachedRemainingScreenTime = null;
+    _cachedRemainingScreenTimeSeconds = null;
+    _cachedPerAppUsedSeconds = null;
+  }
+
   Future<void> setMinutesPer1kSteps(int value) async {
     final isPremium = RevenueCatService.instance.isPremium;
     final minAllowed = isPremium ? 5 : 25;
     await _box?.put(_minutesPer1kStepsKey, value.clamp(minAllowed, 60));
+    _invalidateCalculatedCaches();
   }
 
   /// Emergency pass bonus minutes added to earned time today.
-  int get emergencyPassBonusMinutes =>
-      (_box?.get(_emergencyPassBonusMinutesKey) as int?) ?? 0;
+  int get emergencyPassBonusMinutes {
+    if (isDailyResetDue) return 0;
+    return (_box?.get(_emergencyPassBonusMinutesKey) as int?) ?? 0;
+  }
 
   /// Total minutes earned based on steps walked + emergency pass bonus minutes.
   /// Formula: (steps / 1000) * minutesPer1kSteps + emergencyPassBonusMinutes.
-  int get earnedMinutes =>
-      ((totalStepsWalked / 1000) * minutesPer1kSteps).floor() +
-      emergencyPassBonusMinutes;
+  int get earnedMinutes {
+    if (isDailyResetDue) return 0;
+    if (_cachedEarnedMinutes != null) return _cachedEarnedMinutes!;
+    _cachedEarnedMinutes =
+        ((totalStepsWalked / 1000) * minutesPer1kSteps).floor() +
+        emergencyPassBonusMinutes;
+    return _cachedEarnedMinutes!;
+  }
 
   // ── Used time ─────────────────────────────────────────────────────────────
 
   static const String _usedSecondsKey = 'usedSecondsTotal';
 
   /// Total seconds consumed from the budget today.
-  int get usedSecondsTotal =>
-      (_box?.get(_usedSecondsKey) as int?) ??
-      ((_box?.get(_usedMinutesKey) as int?) ?? 0) * 60;
+  int get usedSecondsTotal {
+    if (isDailyResetDue) return 0;
+    if (_cachedUsedSecondsTotal != null) return _cachedUsedSecondsTotal!;
+    _cachedUsedSecondsTotal = (_box?.get(_usedSecondsKey) as int?) ??
+        ((_box?.get(_usedMinutesKey) as int?) ?? 0) * 60;
+    return _cachedUsedSecondsTotal!;
+  }
 
   /// Total minutes consumed from the budget today.
   int get usedMinutes => (usedSecondsTotal / 60).floor();
 
   /// Remaining screen time, clamped to [0, earnedMinutes].
   int get remainingScreenTime {
-    return (earnedMinutes - usedMinutes).clamp(0, 999999);
+    if (isDailyResetDue) return 0;
+    if (_cachedRemainingScreenTime != null) return _cachedRemainingScreenTime!;
+    _cachedRemainingScreenTime = (earnedMinutes - usedMinutes).clamp(0, 999999);
+    return _cachedRemainingScreenTime!;
   }
 
   /// Remaining screen time in **seconds** — more precise than [remainingScreenTime].
   /// Used by the dashboard countdown to show sub-minute resolution.
   int get remainingScreenTimeSeconds {
+    if (isDailyResetDue) return 0;
+    if (_cachedRemainingScreenTimeSeconds != null) {
+      return _cachedRemainingScreenTimeSeconds!;
+    }
     final earnedSec = earnedMinutes * 60;
-    return (earnedSec - usedSecondsTotal).clamp(0, 999999);
+    _cachedRemainingScreenTimeSeconds =
+        (earnedSec - usedSecondsTotal).clamp(0, 999999);
+    return _cachedRemainingScreenTimeSeconds!;
   }
 
   static const String _perAppUsedSecondsKey = 'perAppUsedSecondsTotal';
 
   /// Map of packageName -> usedSeconds consumed per blocked application today.
   Map<String, int> get perAppUsedSeconds {
+    if (isDailyResetDue) return {};
+    if (_cachedPerAppUsedSeconds != null) return _cachedPerAppUsedSeconds!;
     final raw = _box?.get(_perAppUsedSecondsKey) as String?;
     if (raw != null) {
       try {
         final decoded = jsonDecode(raw) as Map<String, dynamic>;
-        return decoded.map((k, v) => MapEntry(k, (v as num).toInt()));
+        _cachedPerAppUsedSeconds =
+            decoded.map((k, v) => MapEntry(k, (v as num).toInt()));
+        return _cachedPerAppUsedSeconds!;
       } catch (_) {}
     }
     // Backward-compatibility fallback: migrate perAppUsedMinutes if seconds key missing
-    final perAppMin = perAppUsedMinutes;
-    return perAppMin.map((k, v) => MapEntry(k, v * 60));
+    final rawMin = _box?.get(_perAppUsedMinutesKey) as String?;
+    if (rawMin != null) {
+      try {
+        final decoded = jsonDecode(rawMin) as Map<String, dynamic>;
+        _cachedPerAppUsedSeconds =
+            decoded.map((k, v) => MapEntry(k, (v as num).toInt() * 60));
+        return _cachedPerAppUsedSeconds!;
+      } catch (_) {}
+    }
+    _cachedPerAppUsedSeconds = {};
+    return _cachedPerAppUsedSeconds!;
   }
 
   /// Map of packageName -> usedMinutes consumed per blocked application today.
@@ -395,6 +493,7 @@ class TimeBankService {
       final perAppMin =
           perAppSec.map((k, v) => MapEntry(k, (v / 60).floor()));
       await _box?.put(_perAppUsedMinutesKey, jsonEncode(perAppMin));
+      _invalidateCalculatedCaches();
       debugPrint(
         'TimeBankService: +$totalDeltaSeconds sec delta → totalUsedSeconds=$newUsedSeconds ($newUsedMinutes min)',
       );
@@ -506,6 +605,7 @@ class TimeBankService {
 
   /// Total emergency passes used today.
   int get emergencyPassCountToday {
+    if (isDailyResetDue) return 0;
     final count = _box?.get(_emergencyPassCountTodayKey) as int?;
     if (count != null) return count;
     final legacyUsed = (_box?.get(_hasUsedEmergencyPassTodayKey) as bool?) ?? false;
@@ -546,6 +646,7 @@ class TimeBankService {
       _emergencyPassBonusMinutesKey,
       currentBonus + emergencyPassDurationMinutes,
     );
+    _invalidateCalculatedCaches();
 
     debugPrint(
       'TimeBankService: Emergency pass activated! '
@@ -633,9 +734,9 @@ class TimeBankService {
       await _box?.put(_emergencyPassCountTodayKey, 0);
       await _box?.put(_perAppUsedMinutesKey, jsonEncode({}));
       await _box?.put(_perAppUsedSecondsKey, jsonEncode({}));
-      await _saveNativeBaseline({});
       await _box?.put(_lastResetDayKey, today);
       await _box?.put(_isFreshResetPendingKey, true);
+      _invalidateCalculatedCaches();
 
       // Reset native SQLite usage counters for all monitored apps
       try {
@@ -655,17 +756,26 @@ class TimeBankService {
 
   /// Forces an immediate daily reset for manual testing.
   Future<void> forceDailyResetNow() async {
+    _invalidateCalculatedCaches();
     await _box?.put(_lastResetDayKey, 'FORCE_TEST_RESET');
     await resetDailyIfNeeded();
   }
 
   /// Saves the given day's snapshot into the rolling 7-day history.
   Future<void> _archiveDayToHistory(String date) async {
+    final rawSteps = (_box?.get(_totalStepsKey) as num?)?.toInt() ?? 0;
+    final rawUsedSeconds = (_box?.get(_usedSecondsKey) as int?) ??
+        ((_box?.get(_usedMinutesKey) as int?) ?? 0) * 60;
+    final rawUsedMinutes = (rawUsedSeconds / 60).floor();
+    final rawPassBonus = (_box?.get(_emergencyPassBonusMinutesKey) as int?) ?? 0;
+    final rawEarnedMinutes =
+        ((rawSteps / 1000) * minutesPer1kSteps).floor() + rawPassBonus;
+
     final record = DailyRecord(
       date: date,
-      steps: totalStepsWalked,
-      earnedMinutes: earnedMinutes,
-      usedMinutes: usedMinutes,
+      steps: rawSteps,
+      earnedMinutes: rawEarnedMinutes,
+      usedMinutes: rawUsedMinutes,
     );
 
     var history = List<DailyRecord>.from(dailyHistory);
@@ -678,7 +788,7 @@ class TimeBankService {
     }
     await _saveDailyHistory(history);
     debugPrint(
-        'TimeBankService: Archived $date → steps=${record.steps}, earned=${record.earnedMinutes}min');
+        'TimeBankService: Archived $date → steps=${record.steps}, earned=${record.earnedMinutes}min, used=${record.usedMinutes}min');
   }
 
   /// Optional callback invoked after a daily reset.

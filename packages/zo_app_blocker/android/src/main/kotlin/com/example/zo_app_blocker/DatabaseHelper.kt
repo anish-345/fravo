@@ -51,8 +51,8 @@ class DatabaseHelper(context: Context) : SQLiteOpenHelper(
         const val COLUMN_TL_USED_SECONDS = "used_seconds"
         const val COLUMN_TL_LAST_RESET = "last_reset_date"
 
-        private val DATE_FORMAT = SimpleDateFormat("yyyy-MM-dd", Locale.US)
-        fun todayString(): String = DATE_FORMAT.format(java.util.Date())
+        @Synchronized
+        fun todayString(): String = SimpleDateFormat("yyyy-MM-dd", Locale.US).format(java.util.Date())
     }
 
     override fun onCreate(db: SQLiteDatabase) {
