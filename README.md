@@ -10,7 +10,6 @@
 </p>
 
 <p align="center">
-  <a href="https://shipaton.com"><img src="https://img.shields.io/badge/RevenueCat-Shipaton%202026-ff007f?style=for-the-badge&logo=revenuecat&logoColor=white" alt="Shipaton 2026" /></a>
   <a href="https://flutter.dev"><img src="https://img.shields.io/badge/Flutter-3.x-02569B?style=for-the-badge&logo=flutter&logoColor=white" alt="Flutter" /></a>
   <a href="https://onesignal.com"><img src="https://img.shields.io/badge/OneSignal-Push%20%26%20IAM-e54b4d?style=for-the-badge&logo=onesignal&logoColor=white" alt="OneSignal" /></a>
   <a href="https://www.rust-lang.org"><img src="https://img.shields.io/badge/Rust-Axum%20Backend-black?style=for-the-badge&logo=rust&logoColor=white" alt="Rust Backend" /></a>
@@ -20,37 +19,33 @@
 
 ---
 
-## 🏆 RevenueCat Shipaton 2026 Submission
-
-Fravo was built and launched specifically for the global **RevenueCat Shipaton 2026** hackathon (Aug 1 – Sep 30, 2026).
-
-### Targeted Prize Tracks & Competitive Advantages
-
-| Category | Why Fravo Stands Out |
-| :--- | :--- |
-| **🥇 OneSignal "Keep Them Coming Back" Award ($25,000)** | **Autonomous AI Push Engine**: Rust backend synchronizes 290+ player tags daily and uses a **Multi-Armed Bandit (UCB1)** reinforcement learning algorithm to optimize notification conversion rates based on live open/click/dismissal webhooks. |
-| **🥇 Next Gen Award ($20,000)** | Built by a student creator solving modern student doomscrolling and sedentary study habits. Features Pippy the evolving mascot and seamless viral referral passes. |
-| **🥇 Catvertising Award ($20,000)** | **Direct Ad Revenue Tracking**: Google AdMob Rewarded Ads automatically record impression-level revenue directly into RevenueCat via `Purchases.adTracker.trackAdRevenue` on every `onPaidEvent`. |
-| **🥇 HAMM Award (Help Apps Make Money) ($50,000)** | Thoughtful dual-tier economy (Free: 3 apps, 30 min/1k steps vs Pro: unlimited apps, 60 min/1k steps, zero ads) with viral 7-day referral trial loops powered by RevenueCat. |
-| **🥇 RevenueCat Design Award ($20,000)** | Premium liquid glassmorphism, Pippy emotional companion animations, interactive soundscapes, and native Android Home Screen AppWidget. |
-| **🥇 RevenueCat Peace Prize ($20,000)** | Genuine social good: combats screen addiction, improves focus, and encourages daily cardiovascular fitness through a positive reward habit loop. |
-| **🏆 Grand Prize: Build & Grow** | Full end-to-end production mobile app with subscription monetization, analytics, crash reporting, and live stores integration. |
-
 ---
 
-## 🔑 Judge Testing Credentials (Free 7-Day Pro Access)
+## 🔑 Try Fravo Pro Free
 
-We have built a zero-friction referral redemption system so hackathon judges can experience all **Fravo Pro** features without spending real money:
+### Option A — In-App Referral Code (7-Day Pro Trial)
 
-1. **Install & Open Fravo** on any Android device or emulator.
+1. **Install Fravo** from [Google Play](https://play.google.com/store/apps/details?id=avionti.fravo) or build from source.
 2. Complete the quick onboarding flow.
 3. On the Home Dashboard, scroll down to the **"Invite Friends / Redeem Code"** card.
-4. Enter code: `FRAVO-PROMO` (or your personal referral code) and tap **Claim 7 Days Pro**.
+4. Enter code: **`FRAVO-FVPH4`** and tap **Claim 7 Days Pro**.
 5. Your account immediately unlocks **Fravo Pro (7-Day Trial)** with:
    - ⚡ **2x Reward Rate** (1,000 steps = 60 minutes)
    - 🛡️ **Unlimited App Blocking**
    - 🚫 **Zero Ad Interruptions**
    - 📊 **Advanced Screen Time Analytics**
+
+### Option B — Google Play Promo Codes (Direct Premium Unlock)
+
+Redeem at: **[play.google.com/redeem](https://play.google.com/redeem)**
+
+```
+VQ5K9V0TUQJF6SKJ9X396HG
+E67NLZ9EGN924YM2VYEKSWQ
+PUNSD50AP8NJ5FH65GF4U0Y
+5TEGNGRJZDCY7UGAXVLFT8U
+LYE7ERKLBTMS7L8E444R8LD
+```
 
 ---
 
@@ -242,10 +237,8 @@ fravo/
 ## 🔗 Important Links
 
 - 📱 **Google Play Store:** [Fravo on Google Play](https://play.google.com/store/apps/details?id=avionti.fravo)
-- 🌐 **Hackathon Portal:** [RevenueCat Shipaton 2026](https://shipaton.com)
 - 🦀 **Rust AI Backend Repo:** [anish-345/fravoau](https://github.com/anish-345/fravoau)
-- 📄 **Submission Details:** [DEVPOST_SUBMISSION.md](DEVPOST_SUBMISSION.md)
-- 🎬 **Video Walkthrough Script:** [DEMO_VIDEO_SCRIPT.md](DEMO_VIDEO_SCRIPT.md)
+- 🔓 **Redeem Google Play Code:** [play.google.com/redeem](https://play.google.com/redeem)
 
 ---
 
