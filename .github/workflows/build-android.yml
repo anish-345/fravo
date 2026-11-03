@@ -1,4 +1,4 @@
-name: Build & Sign Android (Concurrent & Cached)
+name: Play Store Release Bundle Build & Publish
 
 on:
   push:
@@ -7,10 +7,6 @@ on:
       - master
     tags:
       - 'v*'
-  pull_request:
-    branches:
-      - main
-      - master
   workflow_dispatch:
 
 concurrency:
@@ -21,38 +17,10 @@ permissions:
   contents: write
 
 jobs:
-  build-artifacts:
-    name: 🔨 ${{ matrix.name }}
+  build-and-release:
+    name: 🚀 Build & Publish Play Store Release Bundle (AAB)
     runs-on: ubuntu-latest
-    timeout-minutes: 40
-
-    strategy:
-      fail-fast: false
-      matrix:
-        include:
-          - target: 'playstore-bundle'
-            name: 'Play Store Release Bundle (AAB)'
-            command: 'flutter build appbundle --release'
-            src_path: 'build/app/outputs/bundle/release/app-release.aab'
-            dest_name: 'fravo-playstore-release.aab'
-
-          - target: 'release-apk'
-            name: 'Production Release APK'
-            command: 'flutter build apk --release'
-            src_path: 'build/app/outputs/flutter-apk/app-release.apk'
-            dest_name: 'fravo-release.apk'
-
-          - target: 'debug-bundle'
-            name: 'Debug Bundle (AAB)'
-            command: 'flutter build appbundle --debug'
-            src_path: 'build/app/outputs/bundle/debug/app-debug.aab'
-            dest_name: 'fravo-debug.aab'
-
-          - target: 'debug-apk'
-            name: 'Debug Testing APK'
-            command: 'flutter build apk --debug'
-            src_path: 'build/app/outputs/flutter-apk/app-debug.apk'
-            dest_name: 'fravo-debug.apk'
+    timeout-minutes: 25
 
     steps:
       - name: 📥 Checkout Repository
@@ -130,61 +98,29 @@ jobs:
       - name: 📦 Install Flutter Dependencies
         run: flutter pub get
 
-      - name: 🛠️ Execute Concurrent Build Target (${{ matrix.name }})
-        run: ${{ matrix.command }}
+      - name: 🛠️ Build Play Store Release App Bundle (AAB)
+        run: flutter build appbundle --release
 
       - name: 🔍 Verify Signature & Stage Artifact
         run: |
-          mkdir -p output
-          if [ ! -f "${{ matrix.src_path }}" ]; then
-            echo "::error::Build output artifact ${{ matrix.src_path }} not found!"
+          mkdir -p dist
+          AAB_FILE="build/app/outputs/bundle/release/app-release.aab"
+          if [ ! -f "$AAB_FILE" ]; then
+            echo "::error::Build output $AAB_FILE not found!"
             exit 1
           fi
 
           echo "================ Verification Report ================"
-          echo "Verifying certificate on ${{ matrix.src_path }}..."
-          keytool -printcert -jarfile "${{ matrix.src_path }}" | grep -E "Owner:|SHA256:|SHA1:" || true
+          echo "Verifying certificate on $AAB_FILE..."
+          keytool -printcert -jarfile "$AAB_FILE" | grep -E "Owner:|SHA256:|SHA1:" || true
 
-          cp "${{ matrix.src_path }}" "output/${{ matrix.dest_name }}"
-          echo "✅ Copied to output/${{ matrix.dest_name }}"
+          cp "$AAB_FILE" "dist/fravo-release.aab"
+          echo "✅ Copied to dist/fravo-release.aab"
 
-      - name: 📤 Upload Build Target Artifact
-        uses: actions/upload-artifact@v4
-        with:
-          name: ${{ matrix.dest_name }}
-          path: output/${{ matrix.dest_name }}
-          retention-days: 30
-
-  publish-and-release:
-    name: 📦 Package & Aggregate All Signed Artifacts
-    needs: build-artifacts
-    runs-on: ubuntu-latest
-    if: github.ref == 'refs/heads/main' || github.ref == 'refs/heads/master' || startsWith(github.ref, 'refs/tags/')
-    steps:
-      - name: 📥 Checkout Repository
-        uses: actions/checkout@v4
-
-      - name: 📥 Download All Build Artifacts
-        uses: actions/download-artifact@v4
-        with:
-          path: dist/
-          merge-multiple: true
-
-      - name: 📝 Generate SHA-256 Checksums
-        run: |
           cd dist
-          echo "===== Artifact Inventory ====="
-          ls -lh
-          sha256sum * > SHA256SUMS.txt
-          echo "===== SHA-256 Checksums ====="
+          sha256sum fravo-release.aab > SHA256SUMS.txt
           cat SHA256SUMS.txt
-
-      - name: 📤 Upload Unified Artifact Bundle to Actions
-        uses: actions/upload-artifact@v4
-        with:
-          name: fravo-all-signed-builds-${{ github.sha }}
-          path: dist/
-          retention-days: 30
+          cd ..
 
       - name: 🏷️ Resolve Release Tag & Version
         id: release_info
@@ -201,21 +137,18 @@ jobs:
           echo "tag=${TAG}" >> $GITHUB_OUTPUT
           echo "title=${TITLE}" >> $GITHUB_OUTPUT
 
-      - name: 🚀 Publish to GitHub Releases (Automatic on Every Build)
+      - name: 🚀 Publish to GitHub Releases (Automatic)
         uses: softprops/action-gh-release@v2
         with:
           tag_name: ${{ steps.release_info.outputs.tag }}
           name: ${{ steps.release_info.outputs.title }}
           body: |
             ## 📱 ${{ steps.release_info.outputs.title }}
-            Automated production build compiled with Gradle caching and verified with release keystore signature.
+            Automated Google Play Store production release bundle (`.aab`).
 
             ### 📦 Included Files:
-            - **`fravo-playstore-release.aab`**: Google Play Store Production App Bundle
-            - **`fravo-release.apk`**: Production Signed Release APK (for direct sideload / Indus Appstore / Softonic)
-            - **`fravo-debug.aab`**: Debug App Bundle (signed with same key)
-            - **`fravo-debug.apk`**: Debug Testing APK (signed with same key)
-            - **`SHA256SUMS.txt`**: SHA-256 verification checksums
+            - **`fravo-release.aab`**: Google Play Store Production App Bundle (Signed)
+            - **`SHA256SUMS.txt`**: SHA-256 verification checksum
 
             ### 🔐 Certificate Signature:
             `CN=Fravo App, OU=Development, O=Avionti`
@@ -226,3 +159,10 @@ jobs:
           generate_release_notes: true
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: 📤 Upload Build Artifact to Actions (Backup)
+        uses: actions/upload-artifact@v4
+        with:
+          name: fravo-release-aab
+          path: dist/
+          retention-days: 30
