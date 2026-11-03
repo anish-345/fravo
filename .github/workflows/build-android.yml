@@ -159,6 +159,7 @@ jobs:
     name: 📦 Package & Aggregate All Signed Artifacts
     needs: build-artifacts
     runs-on: ubuntu-latest
+    if: github.ref == 'refs/heads/main' || github.ref == 'refs/heads/master' || startsWith(github.ref, 'refs/tags/')
     steps:
       - name: 📥 Checkout Repository
         uses: actions/checkout@v4
@@ -178,19 +179,50 @@ jobs:
           echo "===== SHA-256 Checksums ====="
           cat SHA256SUMS.txt
 
-      - name: 📤 Upload Unified Artifact Bundle
+      - name: 📤 Upload Unified Artifact Bundle to Actions
         uses: actions/upload-artifact@v4
         with:
           name: fravo-all-signed-builds-${{ github.sha }}
           path: dist/
           retention-days: 30
 
-      - name: 🚀 Publish to GitHub Release
-        if: startsWith(github.ref, 'refs/tags/')
+      - name: 🏷️ Resolve Release Tag & Version
+        id: release_info
+        run: |
+          if [[ "${{ github.ref }}" == refs/tags/* ]]; then
+            TAG="${GITHUB_REF#refs/tags/}"
+            TITLE="Fravo Release ${TAG}"
+          else
+            RAW_VERSION=$(grep '^version: ' pubspec.yaml | head -n1 | sed 's/version:[[:space:]]*//' | tr -d '\r')
+            TAG_VERSION=$(echo "$RAW_VERSION" | sed 's/+/-b/')
+            TAG="v${TAG_VERSION}"
+            TITLE="Fravo Release v${RAW_VERSION}"
+          fi
+          echo "tag=${TAG}" >> $GITHUB_OUTPUT
+          echo "title=${TITLE}" >> $GITHUB_OUTPUT
+
+      - name: 🚀 Publish to GitHub Releases (Automatic on Every Build)
         uses: softprops/action-gh-release@v2
         with:
+          tag_name: ${{ steps.release_info.outputs.tag }}
+          name: ${{ steps.release_info.outputs.title }}
+          body: |
+            ## 📱 ${{ steps.release_info.outputs.title }}
+            Automated production build compiled with Gradle caching and verified with release keystore signature.
+
+            ### 📦 Included Files:
+            - **`fravo-playstore-release.aab`**: Google Play Store Production App Bundle
+            - **`fravo-release.apk`**: Production Signed Release APK (for direct sideload / Indus Appstore / Softonic)
+            - **`fravo-debug.aab`**: Debug App Bundle (signed with same key)
+            - **`fravo-debug.apk`**: Debug Testing APK (signed with same key)
+            - **`SHA256SUMS.txt`**: SHA-256 verification checksums
+
+            ### 🔐 Certificate Signature:
+            `CN=Fravo App, OU=Development, O=Avionti`
+            SHA-256: `99:00:92:E0:BF:55:AD:3E:78:81:0E:72:6C:67:F0:A0:23:8A:EC:66:C6:F6:FB:9A:5C:FD:63:D5:8C:5D:DC:FB`
           files: dist/*
           draft: false
           prerelease: false
+          generate_release_notes: true
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
