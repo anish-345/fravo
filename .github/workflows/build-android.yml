@@ -1,4 +1,4 @@
-name: Build & Sign Android (Debug & Release)
+name: Build & Sign Android (Concurrent & Cached)
 
 on:
   push:
@@ -12,42 +12,76 @@ on:
       - main
       - master
   workflow_dispatch:
-    inputs:
-      build_target:
-        description: 'Build target'
-        required: true
-        default: 'all'
-        type: choice
-        options:
-          - all
-          - release
-          - debug
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
 
 permissions:
   contents: write
 
 jobs:
-  build-and-sign:
-    name: 🚀 Build & Sign Android Artifacts
+  build-artifacts:
+    name: 🔨 ${{ matrix.name }}
     runs-on: ubuntu-latest
-    timeout-minutes: 60
+    timeout-minutes: 40
+
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - target: 'playstore-bundle'
+            name: 'Play Store Release Bundle (AAB)'
+            command: 'flutter build appbundle --release'
+            src_path: 'build/app/outputs/bundle/release/app-release.aab'
+            dest_name: 'fravo-playstore-release.aab'
+
+          - target: 'release-apk'
+            name: 'Production Release APK'
+            command: 'flutter build apk --release'
+            src_path: 'build/app/outputs/flutter-apk/app-release.apk'
+            dest_name: 'fravo-release.apk'
+
+          - target: 'debug-bundle'
+            name: 'Debug Bundle (AAB)'
+            command: 'flutter build appbundle --debug'
+            src_path: 'build/app/outputs/bundle/debug/app-debug.aab'
+            dest_name: 'fravo-debug.aab'
+
+          - target: 'debug-apk'
+            name: 'Debug Testing APK'
+            command: 'flutter build apk --debug'
+            src_path: 'build/app/outputs/flutter-apk/app-debug.apk'
+            dest_name: 'fravo-debug.apk'
 
     steps:
       - name: 📥 Checkout Repository
         uses: actions/checkout@v4
 
       - name: ☕ Set up Java 17
-        uses: actions/setup-java@v5
+        uses: actions/setup-java@v4
         with:
           distribution: 'temurin'
           java-version: '17'
-          cache: 'gradle'
+
+      - name: ⚡ Set up Gradle & Dependency Caching
+        uses: gradle/actions/setup-gradle@v4
+        with:
+          cache-read-only: false
 
       - name: 🐦 Set up Flutter
         uses: subosito/flutter-action@v2
         with:
           channel: 'stable'
           cache: true
+
+      - name: ⚡ Cache Pub Dependencies
+        uses: actions/cache@v4
+        with:
+          path: ~/.pub-cache
+          key: ${{ runner.os }}-pub-${{ hashFiles('**/pubspec.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-pub-
 
       - name: 🔑 Restore Android Keystore & Key Properties
         env:
@@ -61,19 +95,19 @@ jobs:
             exit 1
           fi
 
-          # Clean secrets of any unwanted carriage returns or whitespaces
+          # Sanitize secret inputs from trailing whitespaces/newlines
           KEYSTORE_PASSWORD=$(echo "$RAW_KEYSTORE_PASSWORD" | tr -d '\r\n ')
           KEY_PASSWORD=$(echo "$RAW_KEY_PASSWORD" | tr -d '\r\n ')
           KEY_ALIAS=$(echo "$RAW_KEY_ALIAS" | tr -d '\r\n ')
 
-          # Decode production keystore safely
+          # Decode keystore safely
           echo "$RAW_KEYSTORE_BASE64" | tr -d '\r\n ' | base64 -d > android/app/fravo-release.jks
 
           # Validate keystore integrity and alias
           keytool -list -keystore android/app/fravo-release.jks -storepass "$KEYSTORE_PASSWORD" -alias "$KEY_ALIAS"
           echo "✅ Keystore restored and validated successfully."
 
-          # Create android/key.properties with clean unindented formatting
+          # Generate unindented android/key.properties
           printf "storePassword=%s\nkeyPassword=%s\nkeyAlias=%s\nstoreFile=fravo-release.jks\n" \
             "$KEYSTORE_PASSWORD" "$KEY_PASSWORD" "$KEY_ALIAS" > android/key.properties
 
@@ -87,7 +121,7 @@ jobs:
             echo "$GOOGLE_SERVICES_JSON" > android/app/google-services.json
             echo "✅ google-services.json updated from GitHub Secrets."
           else
-            echo "ℹ️ Using existing repository google-services.json."
+            echo "ℹ️ Using repository google-services.json."
           fi
 
       - name: 🔧 Ensure gradlew is executable
@@ -96,59 +130,62 @@ jobs:
       - name: 📦 Install Flutter Dependencies
         run: flutter pub get
 
-      - name: 🛠️ Build Release App Bundle (AAB)
-        if: ${{ github.event.inputs.build_target == 'all' || github.event.inputs.build_target == 'release' || github.event.inputs.build_target == null }}
-        run: flutter build appbundle --release
+      - name: 🛠️ Execute Concurrent Build Target (${{ matrix.name }})
+        run: ${{ matrix.command }}
 
-      - name: 🛠️ Build Release APK
-        if: ${{ github.event.inputs.build_target == 'all' || github.event.inputs.build_target == 'release' || github.event.inputs.build_target == null }}
-        run: flutter build apk --release
-
-      - name: 🛠️ Build Debug App Bundle (AAB)
-        if: ${{ github.event.inputs.build_target == 'all' || github.event.inputs.build_target == 'debug' || github.event.inputs.build_target == null }}
-        run: flutter build appbundle --debug
-
-      - name: 🛠️ Build Debug APK
-        if: ${{ github.event.inputs.build_target == 'all' || github.event.inputs.build_target == 'debug' || github.event.inputs.build_target == null }}
-        run: flutter build apk --debug
-
-      - name: 🔍 Verify Signatures on Output Artifacts
+      - name: 🔍 Verify Signature & Stage Artifact
         run: |
+          mkdir -p output
+          if [ ! -f "${{ matrix.src_path }}" ]; then
+            echo "::error::Build output artifact ${{ matrix.src_path }} not found!"
+            exit 1
+          fi
+
           echo "================ Verification Report ================"
-          mkdir -p dist
+          echo "Verifying certificate on ${{ matrix.src_path }}..."
+          keytool -printcert -jarfile "${{ matrix.src_path }}" | grep -E "Owner:|SHA256:|SHA1:" || true
 
-          check_sig() {
-            local file_path="$1"
-            local dest_name="$2"
-            if [ -f "$file_path" ]; then
-              echo ">>> Checking signature for: $file_path"
-              keytool -printcert -jarfile "$file_path" | grep -E "Owner:|SHA256:|SHA1:" || true
-              cp "$file_path" "dist/$dest_name"
-              echo "✅ Copied to dist/$dest_name"
-            else
-              echo "⚠️ File not found: $file_path"
-            fi
-          }
+          cp "${{ matrix.src_path }}" "output/${{ matrix.dest_name }}"
+          echo "✅ Copied to output/${{ matrix.dest_name }}"
 
-          check_sig "build/app/outputs/bundle/release/app-release.aab" "fravo-release.aab"
-          check_sig "build/app/outputs/flutter-apk/app-release.apk" "fravo-release.apk"
-          check_sig "build/app/outputs/bundle/debug/app-debug.aab" "fravo-debug.aab"
-          check_sig "build/app/outputs/flutter-apk/app-debug.apk" "fravo-debug.apk"
-
-          echo "================ Generating Checksums ================"
-          cd dist
-          sha256sum * > SHA256SUMS.txt
-          cat SHA256SUMS.txt
-          cd ..
-
-      - name: 📤 Upload Build Artifacts
+      - name: 📤 Upload Build Target Artifact
         uses: actions/upload-artifact@v4
         with:
-          name: fravo-android-builds-${{ github.sha }}
+          name: ${{ matrix.dest_name }}
+          path: output/${{ matrix.dest_name }}
+          retention-days: 30
+
+  publish-and-release:
+    name: 📦 Package & Aggregate All Signed Artifacts
+    needs: build-artifacts
+    runs-on: ubuntu-latest
+    steps:
+      - name: 📥 Checkout Repository
+        uses: actions/checkout@v4
+
+      - name: 📥 Download All Build Artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: dist/
+          merge-multiple: true
+
+      - name: 📝 Generate SHA-256 Checksums
+        run: |
+          cd dist
+          echo "===== Artifact Inventory ====="
+          ls -lh
+          sha256sum * > SHA256SUMS.txt
+          echo "===== SHA-256 Checksums ====="
+          cat SHA256SUMS.txt
+
+      - name: 📤 Upload Unified Artifact Bundle
+        uses: actions/upload-artifact@v4
+        with:
+          name: fravo-all-signed-builds-${{ github.sha }}
           path: dist/
           retention-days: 30
 
-      - name: 🚀 Publish Artifacts to GitHub Release
+      - name: 🚀 Publish to GitHub Release
         if: startsWith(github.ref, 'refs/tags/')
         uses: softprops/action-gh-release@v2
         with:
