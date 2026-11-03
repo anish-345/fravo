@@ -595,7 +595,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                     );
                   },
                   child: Text(
-                    isPremium ? 'Manage Subscription' : 'View Plans (7 Days Free)',
+                    isPremium ? 'Manage Subscription' : 'Upgrade to Pro',
                     style: const TextStyle(fontSize: 13, fontWeight: FontWeight.bold),
                   ),
                 ),

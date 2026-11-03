@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import '../services/admob_service.dart';
 import '../services/blocker_service.dart';
 import '../services/health_service.dart';
 import '../services/onesignal_service.dart';
@@ -88,6 +89,9 @@ class _MainNavigationScreenState extends State<MainNavigationScreen> {
   }
 
   void _onTabSelected(int index) {
+    if (_currentIndex != index) {
+      AdMobService.instance.showScreenTransitionInterstitial();
+    }
     setState(() => _currentIndex = index);
     _pageController.jumpToPage(index);
   }

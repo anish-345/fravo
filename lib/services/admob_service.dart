@@ -4,10 +4,9 @@ import 'package:flutter/foundation.dart';
 import 'package:google_mobile_ads/google_mobile_ads.dart';
 import 'package:hive/hive.dart';
 import 'package:purchases_flutter/purchases_flutter.dart';
+import 'revenuecat_service.dart';
 
-/// Centralized service for Google Mobile Ads (AdMob) Rewarded Ads.
-/// Note: Interstitial and Rewarded Interstitial formats are completely removed
-/// in compliance with Google AdMob "Rewards implementation – User choice" policy.
+/// Centralized service for Google Mobile Ads (AdMob) Rewarded Ads & Transition Interstitials.
 class AdMobService {
   AdMobService._privateConstructor();
   static final AdMobService instance = AdMobService._privateConstructor();
@@ -16,8 +15,16 @@ class AdMobService {
   RewardedAd? _rewardedAd;
   bool _isAdLoading = false;
 
+  InterstitialAd? _interstitialAd;
+  bool _isInterstitialLoading = false;
+  DateTime? _lastInterstitialShownAt;
+  int _screenTransitionCount = 0;
+  static const int _transitionsPerAd = 1; // Show after every tab switch (subject to cooldown)
+  static const int _minCooldownSeconds = 25; // 25s cooldown between interstitials
+
   bool get isInitialized => _initialized;
   bool get isAdLoaded => _rewardedAd != null;
+  bool get isInterstitialAdLoaded => _interstitialAd != null;
 
   /// AdMob Rewarded Video Unit ID (Android Only)
   static String get rewardedAdUnitId {
@@ -26,6 +33,17 @@ class AdMobService {
     }
     if (!kIsWeb && Platform.isAndroid) {
       return 'ca-app-pub-2743584570741087/4079078869'; // Android Rewarded Ad Unit ID
+    }
+    return '';
+  }
+
+  /// AdMob Interstitial Unit ID (Android Only)
+  static String get interstitialAdUnitId {
+    if (kDebugMode) {
+      return 'ca-app-pub-3940256099942544/1033173712'; // Android Test Interstitial
+    }
+    if (!kIsWeb && Platform.isAndroid) {
+      return 'ca-app-pub-2743584570741087/5339086965'; // Android Production Interstitial Ad Unit ID
     }
     return '';
   }
@@ -89,7 +107,7 @@ class AdMobService {
     await init();
   }
 
-  /// Initialize Mobile Ads SDK and pre-load rewarded ads.
+  /// Initialize Mobile Ads SDK and pre-load ads.
   Future<void> init() async {
     if (kIsWeb) return;
     try {
@@ -99,6 +117,7 @@ class AdMobService {
         print('[AdMobService] Google Mobile Ads initialized successfully.');
       }
       loadRewardedAd();
+      loadInterstitialAd();
     } catch (e) {
       if (kDebugMode) {
         print('[AdMobService] Initialized with fallback: $e');
@@ -290,5 +309,118 @@ class AdMobService {
       loadRewardedAd();
       onAdUnavailable?.call();
     }
+  }
+
+  /// Pre-load an Interstitial Ad.
+  void loadInterstitialAd() {
+    if (kIsWeb || _isInterstitialLoading || _interstitialAd != null) return;
+    _isInterstitialLoading = true;
+
+    InterstitialAd.load(
+      adUnitId: interstitialAdUnitId,
+      request: const AdRequest(),
+      adLoadCallback: InterstitialAdLoadCallback(
+        onAdLoaded: (InterstitialAd ad) {
+          _interstitialAd = ad;
+          _isInterstitialLoading = false;
+
+          // Catvertising: Record AdMob impression revenue into RevenueCat
+          ad.onPaidEvent = (Ad paidAd, double valueMicros, PrecisionType precision, String currencyCode) {
+            if (kDebugMode) {
+              print(
+                '[AdMobService] Interstitial onPaidEvent: $valueMicros micros, $currencyCode, precision: $precision',
+              );
+            }
+            try {
+              Purchases.adTracker.trackAdRevenue(
+                AdRevenueData(
+                  mediatorName: AdMediatorName('admob'),
+                  adFormat: AdFormat.interstitial,
+                  adUnitId: paidAd.adUnitId,
+                  impressionId: paidAd.responseInfo?.responseId ??
+                      'admob_interstitial_${DateTime.now().millisecondsSinceEpoch}',
+                  revenueMicros: valueMicros.round(),
+                  currency: currencyCode,
+                  precision: _mapPrecision(precision),
+                ),
+              );
+              if (kDebugMode) {
+                print('[AdMobService] Catvertising: Successfully tracked interstitial revenue!');
+              }
+            } catch (e) {
+              if (kDebugMode) {
+                print('[AdMobService] Error tracking interstitial revenue: $e');
+              }
+            }
+          };
+
+          if (kDebugMode) {
+            print('[AdMobService] InterstitialAd loaded successfully.');
+          }
+        },
+        onAdFailedToLoad: (LoadAdError error) {
+          _interstitialAd = null;
+          _isInterstitialLoading = false;
+          if (kDebugMode) {
+            print('[AdMobService] InterstitialAd failed to load: $error');
+          }
+        },
+      ),
+    );
+  }
+
+  /// Shows an Interstitial Ad on screen transitions for Free tier users.
+  /// Throttled by transition count and cooldown interval to ensure optimal user experience.
+  void showScreenTransitionInterstitial({VoidCallback? onAdClosed}) {
+    if (kIsWeb) {
+      onAdClosed?.call();
+      return;
+    }
+
+    // Pro subscribers & active referral trial users never see interstitial ads
+    if (RevenueCatService.instance.isPremium) {
+      onAdClosed?.call();
+      return;
+    }
+
+    _screenTransitionCount++;
+    if (_screenTransitionCount < _transitionsPerAd) {
+      onAdClosed?.call();
+      return;
+    }
+
+    final now = DateTime.now();
+    if (_lastInterstitialShownAt != null &&
+        now.difference(_lastInterstitialShownAt!).inSeconds < _minCooldownSeconds) {
+      onAdClosed?.call();
+      return;
+    }
+
+    if (_interstitialAd == null) {
+      loadInterstitialAd();
+      onAdClosed?.call();
+      return;
+    }
+
+    _screenTransitionCount = 0;
+    _lastInterstitialShownAt = now;
+
+    final adToShow = _interstitialAd!;
+    _interstitialAd = null;
+
+    adToShow.fullScreenContentCallback = FullScreenContentCallback(
+      onAdDismissedFullScreenContent: (InterstitialAd ad) {
+        ad.dispose();
+        loadInterstitialAd(); // Preload next ad
+        onAdClosed?.call();
+      },
+      onAdFailedToShowFullScreenContent: (InterstitialAd ad, AdError error) {
+        ad.dispose();
+        loadInterstitialAd();
+        onAdClosed?.call();
+      },
+    );
+
+    adToShow.show();
   }
 }

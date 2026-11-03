@@ -12,14 +12,6 @@ plugins {
 }
 
 // Load signing config from key.properties if it exists (production build).
-// To create a release keystore:
-//   keytool -genkey -v -keystore android/app/upload-keystore.jks \
-//           -keyalg RSA -keysize 2048 -validity 10000 -alias upload
-// Then create android/key.properties with:
-//   storePassword=<password>
-//   keyPassword=<password>
-//   keyAlias=upload
-//   storeFile=upload-keystore.jks
 val keystorePropertiesFile = rootProject.file("key.properties")
 val keystoreProperties = Properties()
 if (keystorePropertiesFile.exists()) {
@@ -53,13 +45,28 @@ android {
             create("release") {
                 keyAlias = keystoreProperties["keyAlias"] as String
                 keyPassword = keystoreProperties["keyPassword"] as String
-                storeFile = file(keystoreProperties["storeFile"] as String)
+                val rawStoreFile = keystoreProperties["storeFile"] as String
+                val candidateFile = file(rawStoreFile)
+                storeFile = when {
+                    candidateFile.exists() -> candidateFile
+                    rootProject.file(rawStoreFile).exists() -> rootProject.file(rawStoreFile)
+                    file("app/$rawStoreFile").exists() -> file("app/$rawStoreFile")
+                    else -> candidateFile
+                }
                 storePassword = keystoreProperties["storePassword"] as String
             }
         }
     }
 
     buildTypes {
+        debug {
+            // Sign debug with the release key if key.properties exists, otherwise default debug key
+            signingConfig = if (keystorePropertiesFile.exists()) {
+                signingConfigs.getByName("release")
+            } else {
+                signingConfigs.getByName("debug")
+            }
+        }
         release {
             // Use release signing if key.properties exists, otherwise fall back to debug.
             signingConfig = if (keystorePropertiesFile.exists()) {
