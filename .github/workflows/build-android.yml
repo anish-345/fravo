@@ -61,8 +61,12 @@ jobs:
             exit 1
           fi
 
-          # Decode production keystore to android/app/fravo-release.jks
-          echo "$KEYSTORE_BASE64" | base64 --decode > android/app/fravo-release.jks
+          # Decode production keystore safely ignoring any newlines/carriage returns
+          echo "$KEYSTORE_BASE64" | tr -d '\r\n ' | base64 -d > android/app/fravo-release.jks
+
+          # Validate keystore integrity
+          keytool -list -keystore android/app/fravo-release.jks -storepass "$KEYSTORE_PASSWORD" -alias "$KEY_ALIAS" > /dev/null
+          echo "✅ Keystore restored and validated successfully."
 
           # Create android/key.properties
           cat <<EOF > android/key.properties
@@ -72,7 +76,7 @@ jobs:
           storeFile=fravo-release.jks
           EOF
 
-          echo "✅ Keystore restored and android/key.properties configured successfully."
+          echo "✅ android/key.properties configured successfully."
 
       - name: 📄 Restore google-services.json (if provided via secrets)
         env:
@@ -152,4 +156,3 @@ jobs:
           prerelease: false
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-
