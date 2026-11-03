@@ -37,7 +37,7 @@ jobs:
         uses: actions/checkout@v4
 
       - name: ☕ Set up Java 17
-        uses: actions/setup-java@v4
+        uses: actions/setup-java@v5
         with:
           distribution: 'temurin'
           java-version: '17'
@@ -51,30 +51,31 @@ jobs:
 
       - name: 🔑 Restore Android Keystore & Key Properties
         env:
-          KEYSTORE_BASE64: ${{ secrets.KEYSTORE_BASE64 }}
-          KEYSTORE_PASSWORD: ${{ secrets.KEYSTORE_PASSWORD }}
-          KEY_ALIAS: ${{ secrets.KEY_ALIAS }}
-          KEY_PASSWORD: ${{ secrets.KEY_PASSWORD }}
+          RAW_KEYSTORE_BASE64: ${{ secrets.KEYSTORE_BASE64 }}
+          RAW_KEYSTORE_PASSWORD: ${{ secrets.KEYSTORE_PASSWORD }}
+          RAW_KEY_ALIAS: ${{ secrets.KEY_ALIAS }}
+          RAW_KEY_PASSWORD: ${{ secrets.KEY_PASSWORD }}
         run: |
-          if [ -z "$KEYSTORE_BASE64" ]; then
+          if [ -z "$RAW_KEYSTORE_BASE64" ]; then
             echo "::error::KEYSTORE_BASE64 secret is not set!"
             exit 1
           fi
 
-          # Decode production keystore safely ignoring any newlines/carriage returns
-          echo "$KEYSTORE_BASE64" | tr -d '\r\n ' | base64 -d > android/app/fravo-release.jks
+          # Clean secrets of any unwanted carriage returns or whitespaces
+          KEYSTORE_PASSWORD=$(echo "$RAW_KEYSTORE_PASSWORD" | tr -d '\r\n ')
+          KEY_PASSWORD=$(echo "$RAW_KEY_PASSWORD" | tr -d '\r\n ')
+          KEY_ALIAS=$(echo "$RAW_KEY_ALIAS" | tr -d '\r\n ')
 
-          # Validate keystore integrity
-          keytool -list -keystore android/app/fravo-release.jks -storepass "$KEYSTORE_PASSWORD" -alias "$KEY_ALIAS" > /dev/null
+          # Decode production keystore safely
+          echo "$RAW_KEYSTORE_BASE64" | tr -d '\r\n ' | base64 -d > android/app/fravo-release.jks
+
+          # Validate keystore integrity and alias
+          keytool -list -keystore android/app/fravo-release.jks -storepass "$KEYSTORE_PASSWORD" -alias "$KEY_ALIAS"
           echo "✅ Keystore restored and validated successfully."
 
-          # Create android/key.properties
-          cat <<EOF > android/key.properties
-          storePassword=$KEYSTORE_PASSWORD
-          keyPassword=$KEY_PASSWORD
-          keyAlias=$KEY_ALIAS
-          storeFile=fravo-release.jks
-          EOF
+          # Create android/key.properties with clean unindented formatting
+          printf "storePassword=%s\nkeyPassword=%s\nkeyAlias=%s\nstoreFile=fravo-release.jks\n" \
+            "$KEYSTORE_PASSWORD" "$KEY_PASSWORD" "$KEY_ALIAS" > android/key.properties
 
           echo "✅ android/key.properties configured successfully."
 
